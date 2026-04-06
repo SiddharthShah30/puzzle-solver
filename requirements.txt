@@ -1,0 +1,2 @@
+# No third-party packages are required.
+# Tkinter ships with standard Python on most platforms.

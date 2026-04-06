@@ -1,0 +1,26 @@
+# Python bytecode and cache
+__pycache__/
+*.py[cod]
+*$py.class
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# OS/editor files
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Generated local solver data
+sudoku_solver/solver_stats.json
+sudoku_solver/solver_stats_advanced.json
+sudoku_solver/solutions_verified.json
+sudoku_solver/patterns.json
+
+# Logs and local temp files
+*.log
+*.tmp
