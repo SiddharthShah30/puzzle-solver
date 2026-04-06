@@ -46,9 +46,18 @@ class SudokuSolverUI:
         # Custom irregular grid support
         self.irregular_regions: List[Set[Tuple[int, int]]] = []
         
+        self.setup_styles()
         self.setup_ui()
         self.bind_keyboard()
         self.root.focus_set()
+
+    def setup_styles(self):
+        """Setup a consistent ttk style theme."""
+        style = ttk.Style(self.root)
+        try:
+            style.theme_use("clam")
+        except tk.TclError:
+            pass
 
     def setup_ui(self):
         """Setup the complete UI"""
@@ -71,7 +80,6 @@ class SudokuSolverUI:
         
         self.size_var = tk.StringVar(value="9")
         for size in ["1", "4", "9", "16"]:
-            self.setup_styles()
             ttk.Radiobutton(
                 size_frame,
                 text=f"{size}x{size}",
