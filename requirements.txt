@@ -1,2 +1,5 @@
 # No third-party packages are required.
 # Tkinter ships with standard Python on most platforms.
+
+# Required for screenshot/image import in Queens UI.
+pillow>=10.0.0

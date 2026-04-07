@@ -3,10 +3,16 @@
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import List, Optional, Set, Tuple
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
+
+try:
+    from PIL import Image
+except ImportError:  # pragma: no cover - runtime fallback
+    Image = None
 
 from .solver import QueensPuzzleSolver
 
@@ -70,6 +76,7 @@ class QueensUI:
         right.pack(side=tk.RIGHT, fill=tk.Y, padx=(10, 0))
 
         ttk.Button(right, text="New Puzzle Setup", command=self.new_puzzle_setup).pack(fill=tk.X, pady=4)
+        ttk.Button(right, text="Import from Screenshot", command=self.import_from_screenshot).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Load Example", command=lambda: self.load_sample("linkedin_queens_7x7.json")).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Solve", command=self.solve).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Clear Marks", command=self.clear_marks).pack(fill=tk.X, pady=4)
@@ -180,6 +187,135 @@ class QueensUI:
         button_row.pack(fill=tk.X, pady=(10, 0))
         ttk.Button(button_row, text="Apply Puzzle", command=apply_setup).pack(side=tk.LEFT)
         ttk.Button(button_row, text="Cancel", command=setup.destroy).pack(side=tk.LEFT, padx=(8, 0))
+
+    def import_from_screenshot(self):
+        """Create a puzzle from a screenshot by color-clustering cell centers."""
+        if Image is None:
+            messagebox.showerror(
+                "Missing Dependency",
+                "Pillow is required for screenshot import. Install it with: pip install pillow",
+            )
+            return
+
+        image_path = filedialog.askopenfilename(
+            title="Select Queens Screenshot",
+            filetypes=[("Image files", "*.png;*.jpg;*.jpeg;*.webp")],
+        )
+        if not image_path:
+            return
+
+        size = simpledialog.askinteger(
+            "Board Size",
+            "Enter board size N for this screenshot (e.g. 7):",
+            minvalue=1,
+            parent=self.root,
+        )
+        if size is None:
+            return
+
+        try:
+            image = Image.open(image_path).convert("RGB")
+            regions = self._regions_from_image(image, size)
+            self._load_from_data({"regions": regions, "fixed_queens": [], "blocked": []}, source_label=Path(image_path).name)
+            self.status.config(text=f"Imported regions from screenshot ({size}x{size}). Add X/Queens and solve.")
+        except Exception as exc:
+            messagebox.showerror("Import Failed", str(exc))
+
+    def _regions_from_image(self, image: "Image.Image", size: int) -> List[List[int]]:
+        width, height = image.size
+        cell_w = width / size
+        cell_h = height / size
+
+        sampled: List[List[Tuple[int, int, int]]] = []
+        for r in range(size):
+            row_colors = []
+            for c in range(size):
+                x = min(width - 1, max(0, int((c + 0.5) * cell_w)))
+                y = min(height - 1, max(0, int((r + 0.5) * cell_h)))
+                row_colors.append(image.getpixel((x, y)))
+            sampled.append(row_colors)
+
+        # Cluster similar colors into region ids.
+        threshold = 38.0
+        centroids: List[Tuple[float, float, float]] = []
+        counts: List[int] = []
+        region_map = [[-1 for _ in range(size)] for _ in range(size)]
+
+        def color_distance(a: Tuple[int, int, int], b: Tuple[float, float, float]) -> float:
+            return math.sqrt((a[0] - b[0]) ** 2 + (a[1] - b[1]) ** 2 + (a[2] - b[2]) ** 2)
+
+        for r in range(size):
+            for c in range(size):
+                color = sampled[r][c]
+                if not centroids:
+                    centroids.append((float(color[0]), float(color[1]), float(color[2])))
+                    counts.append(1)
+                    region_map[r][c] = 0
+                    continue
+
+                best_idx = min(range(len(centroids)), key=lambda i: color_distance(color, centroids[i]))
+                best_dist = color_distance(color, centroids[best_idx])
+
+                if best_dist <= threshold:
+                    region_map[r][c] = best_idx
+                    old_count = counts[best_idx]
+                    cx, cy, cz = centroids[best_idx]
+                    centroids[best_idx] = (
+                        (cx * old_count + color[0]) / (old_count + 1),
+                        (cy * old_count + color[1]) / (old_count + 1),
+                        (cz * old_count + color[2]) / (old_count + 1),
+                    )
+                    counts[best_idx] = old_count + 1
+                else:
+                    centroids.append((float(color[0]), float(color[1]), float(color[2])))
+                    counts.append(1)
+                    region_map[r][c] = len(centroids) - 1
+
+        # If colors over-segment due to anti-aliasing, merge closest clusters until <= size.
+        while len(centroids) > size:
+            best_pair = None
+            best_dist = float("inf")
+            for i in range(len(centroids)):
+                for j in range(i + 1, len(centroids)):
+                    d = color_distance((int(centroids[i][0]), int(centroids[i][1]), int(centroids[i][2])), centroids[j])
+                    if d < best_dist:
+                        best_dist = d
+                        best_pair = (i, j)
+
+            if best_pair is None:
+                break
+
+            i, j = best_pair
+            total = counts[i] + counts[j]
+            centroids[i] = (
+                (centroids[i][0] * counts[i] + centroids[j][0] * counts[j]) / total,
+                (centroids[i][1] * counts[i] + centroids[j][1] * counts[j]) / total,
+                (centroids[i][2] * counts[i] + centroids[j][2] * counts[j]) / total,
+            )
+            counts[i] = total
+
+            for r in range(size):
+                for c in range(size):
+                    if region_map[r][c] == j:
+                        region_map[r][c] = i
+                    elif region_map[r][c] > j:
+                        region_map[r][c] -= 1
+
+            del centroids[j]
+            del counts[j]
+
+        # Re-label to contiguous 0..k-1
+        remap = {}
+        next_id = 0
+        for r in range(size):
+            for c in range(size):
+                rid = region_map[r][c]
+                if rid not in remap:
+                    remap[rid] = next_id
+                    next_id += 1
+                region_map[r][c] = remap[rid]
+
+        return region_map
 
     def load_sample(self, filename: str):
         path = self.samples_dir / filename
