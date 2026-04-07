@@ -7,7 +7,7 @@ Advanced Sudoku Solver UI with Keyboard Navigation
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog, simpledialog
+from tkinter import ttk, messagebox, filedialog
 import threading
 from typing import List, Optional, Tuple, Set
 import hashlib
@@ -42,6 +42,7 @@ class SudokuSolverUI:
         self.solved = False
         self.selected_cell: Optional[Tuple[int, int]] = None
         self.selected_number = 0
+        self.ui_input_locked = False
         
         # Get samples directory
         self.samples_dir = Path(__file__).parent / "samples"
@@ -149,28 +150,93 @@ class SudokuSolverUI:
         clear_btn.grid(row=(self.board_size // columns) + 1, column=0, columnspan=columns, pady=5)
 
     def set_custom_dimensions(self):
-        """Prompt for a custom board size and rectangular region dimensions."""
-        size = simpledialog.askinteger("Custom Size", "Enter board size (N for an N x N grid):", minvalue=1)
-        if size is None:
+        """Open a clear modal dialog for custom board and region dimensions."""
+        if self.solving:
+            messagebox.showwarning("Warning", "Cannot change size while solving!")
             return
 
-        region_rows = simpledialog.askinteger("Region Rows", "Enter region height (e.g. 2):", minvalue=1)
-        if region_rows is None:
-            return
+        self.ui_input_locked = True
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Custom Grid Setup")
+        dialog.geometry("460x320")
+        dialog.configure(bg="#eef2f7")
+        dialog.transient(self.root)
+        dialog.grab_set()
 
-        region_cols = simpledialog.askinteger("Region Columns", "Enter region width (e.g. 4):", minvalue=1)
-        if region_cols is None:
-            return
+        def close_dialog():
+            self.ui_input_locked = False
+            if dialog.winfo_exists():
+                dialog.grab_release()
+                dialog.destroy()
 
-        if region_rows * region_cols != size:
-            messagebox.showerror(
-                "Invalid Dimensions",
-                "For rectangular Sudoku, the board size must equal region rows × region columns."
+        def apply_settings():
+            try:
+                size = int(size_var.get())
+                region_rows = int(rows_var.get())
+                region_cols = int(cols_var.get())
+            except ValueError:
+                messagebox.showerror("Invalid Input", "Please enter whole numbers for all fields.", parent=dialog)
+                return
+
+            if size < 1 or region_rows < 1 or region_cols < 1:
+                messagebox.showerror("Invalid Input", "All values must be greater than zero.", parent=dialog)
+                return
+
+            if region_rows * region_cols != size:
+                messagebox.showerror(
+                    "Invalid Dimensions",
+                    "For rectangular Sudoku, board size must equal region rows × region cols.",
+                    parent=dialog,
+                )
+                return
+
+            self.region_shape = (region_rows, region_cols)
+            self.change_board_size(size)
+            self.status_label.config(
+                text=f"Custom grid ready: {size}x{size} board with {region_rows}x{region_cols} regions"
             )
-            return
+            close_dialog()
 
-        self.region_shape = (region_rows, region_cols)
-        self.change_board_size(size)
+        title = ttk.Label(dialog, text="Custom Grid Setup", font=("Helvetica", 15, "bold"))
+        title.pack(pady=(18, 4))
+
+        info = ttk.Label(
+            dialog,
+            text=(
+                "Enter the board size and the region dimensions.\n"
+                "Examples: 8 board with 2x4 regions, or 42 board with 6x7 regions.\n"
+                "Rule: board size must equal region rows × region cols."
+            ),
+            justify="center",
+            wraplength=400,
+        )
+        info.pack(pady=(0, 14))
+
+        form = ttk.Frame(dialog, padding=10)
+        form.pack(fill=tk.X)
+
+        size_var = tk.StringVar(value=str(self.board_size))
+        rows_var = tk.StringVar(value=str(self.region_shape[0] if self.region_shape else 2))
+        cols_var = tk.StringVar(value=str(self.region_shape[1] if self.region_shape else 4))
+
+        entries = [
+            ("Board size", size_var),
+            ("Region rows", rows_var),
+            ("Region cols", cols_var),
+        ]
+
+        for row_index, (label_text, variable) in enumerate(entries):
+            ttk.Label(form, text=label_text).grid(row=row_index, column=0, sticky="w", padx=(0, 8), pady=6)
+            ttk.Entry(form, textvariable=variable, width=18).grid(row=row_index, column=1, sticky="w", pady=6)
+
+        button_row = ttk.Frame(dialog)
+        button_row.pack(pady=18)
+
+        ttk.Button(button_row, text="Apply", command=apply_settings).pack(side=tk.LEFT, padx=6)
+        ttk.Button(button_row, text="Cancel", command=close_dialog).pack(side=tk.LEFT, padx=6)
+
+        dialog.protocol("WM_DELETE_WINDOW", close_dialog)
+        dialog.wait_window()
 
     def setup_ui(self):
         """Setup the complete UI"""
@@ -358,6 +424,9 @@ class SudokuSolverUI:
 
     def handle_keypress(self, event):
         """Handle keyboard input from top row keys and numpad."""
+        if self.ui_input_locked:
+            return 'break'
+
         key = event.keysym
         char = event.char
 
