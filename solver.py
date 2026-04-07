@@ -15,6 +15,7 @@ class PuzzleSolverHome:
         self.root.configure(bg="#eef2f7")
 
         self.sudoku_window = None
+        self.queens_window = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -51,6 +52,20 @@ class PuzzleSolverHome:
         ttk.Label(
             sudoku_card,
             text="Supports 1x1, 4x4, 9x9, and 16x16 boards with keyboard input.",
+            font=("Helvetica", 10)
+        ).pack()
+
+        self.queens_btn = ttk.Button(
+            sudoku_card,
+            text="LinkedIn Queens Solver",
+            command=self.launch_queens,
+            width=30
+        )
+        self.queens_btn.pack(pady=(12, 8))
+
+        ttk.Label(
+            sudoku_card,
+            text="Solves one-queen-per-row/column/region puzzles with no-touch constraints.",
             font=("Helvetica", 10)
         ).pack()
 
@@ -92,6 +107,30 @@ class PuzzleSolverHome:
         self.sudoku_window = None
         self.sudoku_btn.config(state="normal")
         self.status_label.config(text="Sudoku window closed.")
+
+    def launch_queens(self):
+        try:
+            if self.queens_window is not None and self.queens_window.winfo_exists():
+                self.queens_window.focus_force()
+                self.status_label.config(text="Queens window is already open.")
+                return
+
+            from linkedin_queens_solver.ui import LinkedInQueensUI
+
+            self.queens_window = tk.Toplevel(self.root)
+            self.queens_window.protocol("WM_DELETE_WINDOW", self._on_queens_close)
+            LinkedInQueensUI(self.queens_window)
+            self.queens_btn.config(state="disabled")
+            self.status_label.config(text="Queens solver launched.")
+        except Exception as exc:
+            self.status_label.config(text=f"Error launching Queens: {exc}")
+
+    def _on_queens_close(self):
+        if self.queens_window is not None and self.queens_window.winfo_exists():
+            self.queens_window.destroy()
+        self.queens_window = None
+        self.queens_btn.config(state="normal")
+        self.status_label.config(text="Queens window closed.")
 
 
 def main():

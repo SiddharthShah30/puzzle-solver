@@ -4,6 +4,13 @@ Advanced Sudoku solver with keyboard navigation, no minimum clue requirements, a
 
 ## ✨ Features
 
+### 👑 LinkedIn Queens Solver
+- **Exact LinkedIn Rules**: One queen per row, column, and color region
+- **No-Touch Constraint**: Queens cannot touch, including diagonals
+- **Tap Cycle Input**: Click cycle is `Empty -> X -> Queen -> Empty`
+- **Interactive Board**: Region-colored board with sample puzzle support
+- **Custom Puzzle JSON**: Load your own `regions`, fixed queens, and blocked cells
+
 ### 🎯 Universal Solving
 - **All Grid Sizes**: Standard square boards plus custom rectangular grids like `2x4` and `3x4`
 - **Any Puzzle Setup**: No minimum clues required
@@ -71,6 +78,12 @@ python solver.py
 ```
 Puzzle Solver/
 ├── solver.py                      # Main launcher
+├── linkedin_queens_solver/        # LinkedIn Queens solver
+│   ├── solver.py                  # Queens backtracking algorithm
+│   ├── ui.py                      # Queens puzzle interface
+│   ├── samples/
+│   │   └── linkedin_queens_7x7.json
+│   └── __init__.py
 ├── sudoku_solver/                 # Sudoku solver
 │   ├── solver.py                  # Backtracking algorithm
 │   ├── ui.py                      # Enhanced Tkinter UI
@@ -83,6 +96,20 @@ Puzzle Solver/
 ```
 
 ## 🧠 Algorithm: Backtracking + Constraint Propagation
+
+## 👑 Queens Puzzle Algorithm
+
+Rules enforced by the solver:
+1. Exactly one queen in every row
+2. Exactly one queen in every column
+3. Exactly one queen in every color region
+4. Queens cannot touch (8-neighbor rule, including diagonals)
+
+The solver uses backtracking with pruning:
+- Skip blocked `X` cells
+- Reject columns/regions already used
+- Reject placements touching existing queens
+- Place row by row until all rows are satisfied
 
 ### How It Works
 1. **Constraint Sets**: Each cell maintains possible values
