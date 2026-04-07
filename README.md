@@ -91,6 +91,29 @@ Puzzle Solver/
 4. **Backtracking**: Undo mistakes systematically
 5. **Early Termination**: Detect impossible states before full search
 
+### Custom Region Layouts
+The solver also supports irregular Sudoku layouts through a `regions` grid in the puzzle JSON.
+
+Example:
+```json
+{
+  "size": 9,
+  "regions": [
+    [0, 0, 0, 1, 1, 1, 2, 2, 2],
+    [0, 3, 3, 1, 4, 4, 2, 5, 5],
+    [3, 3, 6, 4, 4, 7, 5, 5, 8],
+    [0, 0, 6, 1, 1, 7, 2, 2, 8],
+    [3, 6, 6, 4, 4, 7, 5, 8, 8],
+    [3, 3, 6, 1, 7, 7, 2, 5, 8],
+    [0, 6, 6, 1, 1, 4, 2, 2, 8],
+    [0, 3, 3, 4, 4, 7, 5, 5, 8],
+    [0, 0, 6, 1, 1, 7, 2, 2, 8]
+  ]
+}
+```
+
+You can load a region map separately with **Load Region Map** or save/load it together with the puzzle.
+
 ### Efficiency Metrics
 - **9x9**: 0.001-0.1s (typical)
 - **4x4**: <0.01s (typical)

@@ -1,40 +1,95 @@
 """
-Sudoku Solver using Backtracking with Constraint Propagation
-Supports sudoku sizes: 1x1, 4x4, 9x9, 16x16
+Sudoku Solver using Backtracking with Constraint Propagation.
+Supports standard square-region Sudoku and custom irregular region layouts.
 """
 
 import time
-from typing import List, Tuple, Set, Optional
+from typing import Dict, List, Optional, Set, Tuple
 
 
 class SudokuSolver:
-    def __init__(self, board: List[List[int]], size: int = 9):
+    def __init__(self, board: List[List[int]], size: int = 9, region_map: Optional[List[List[int]]] = None):
         """
-        Initialize Sudoku Solver
-        
+        Initialize Sudoku Solver.
+
         Args:
             board: 2D list representing the sudoku board (0 = empty)
-            size: Sudoku size (9, 16, 4, 1)
+            size: Sudoku size (1, 4, 9, 16)
+            region_map: Optional 2D list mapping each cell to a region id.
         """
         self.original_board = [row[:] for row in board]
         self.board = [row[:] for row in board]
         self.size = size
-        self.box_size = int(size ** 0.5)
         self.solve_time = 0
         self.moves_count = 0
         self.constraints = None
-        
-        # Validate size
+
+        self._validate_board_shape()
+        self.region_map = self._normalize_region_map(region_map)
+        self.region_cells = self._build_region_cells()
+
+        # Validate size only for values this project intentionally supports.
         if size not in [1, 4, 9, 16]:
             raise ValueError(f"Sudoku size must be 1, 4, 9, or 16, got {size}")
-        
+
         self._initialize_constraints()
+
+    def _validate_board_shape(self):
+        if len(self.board) != self.size or any(len(row) != self.size for row in self.board):
+            raise ValueError(f"Board must be a {self.size}x{self.size} grid")
+
+    def _standard_region_map(self) -> List[List[int]]:
+        box_size = int(self.size ** 0.5)
+        if box_size * box_size != self.size:
+            raise ValueError(
+                "Standard square-region Sudoku requires a square grid size. "
+                "Provide a custom region_map for irregular layouts."
+            )
+
+        return [
+            [(row // box_size) * box_size + (col // box_size) for col in range(self.size)]
+            for row in range(self.size)
+        ]
+
+    def _normalize_region_map(self, region_map: Optional[List[List[int]]]) -> List[List[int]]:
+        if region_map is None:
+            return self._standard_region_map()
+
+        if len(region_map) != self.size or any(len(row) != self.size for row in region_map):
+            raise ValueError(f"Region map must be a {self.size}x{self.size} grid")
+
+        return [[int(cell) for cell in row] for row in region_map]
+
+    def _build_region_cells(self) -> Dict[int, Set[Tuple[int, int]]]:
+        region_cells: Dict[int, Set[Tuple[int, int]]] = {}
+
+        for row in range(self.size):
+            for col in range(self.size):
+                region_id = self.region_map[row][col]
+                region_cells.setdefault(region_id, set()).add((row, col))
+
+        if len(region_cells) != self.size:
+            raise ValueError(
+                f"Region map must contain exactly {self.size} regions; found {len(region_cells)}"
+            )
+
+        for region_id, cells in region_cells.items():
+            if len(cells) != self.size:
+                raise ValueError(
+                    f"Region {region_id} must contain exactly {self.size} cells; found {len(cells)}"
+                )
+
+        return region_cells
+
+    def _region_neighbors(self, row: int, col: int) -> Set[Tuple[int, int]]:
+        region_id = self.region_map[row][col]
+        return self.region_cells[region_id]
 
     def _initialize_constraints(self):
         """Initialize constraint sets for each cell"""
-        self.constraints = [[set(range(1, self.size + 1)) for _ in range(self.size)] 
+        self.constraints = [[set(range(1, self.size + 1)) for _ in range(self.size)]
                            for _ in range(self.size)]
-        
+
         # Remove constraints based on initial board
         for i in range(self.size):
             for j in range(self.size):
@@ -45,21 +100,18 @@ class SudokuSolver:
         """Update constraints when a value is placed"""
         # Clear constraints for this cell
         self.constraints[row][col] = set()
-        
+
         # Remove from row constraints
         for c in range(self.size):
             self.constraints[row][c].discard(value)
-        
+
         # Remove from column constraints
         for r in range(self.size):
             self.constraints[r][col].discard(value)
-        
-        # Remove from box constraints
-        box_row = (row // self.box_size) * self.box_size
-        box_col = (col // self.box_size) * self.box_size
-        for r in range(box_row, box_row + self.box_size):
-            for c in range(box_col, box_col + self.box_size):
-                self.constraints[r][c].discard(value)
+
+        # Remove from region constraints
+        for r, c in self._region_neighbors(row, col):
+            self.constraints[r][c].discard(value)
 
     def _get_next_cell(self) -> Optional[Tuple[int, int]]:
         """Get the next empty cell with minimum remaining values (MRV heuristic)"""
@@ -88,13 +140,10 @@ class SudokuSolver:
         if value in [self.board[r][col] for r in range(self.size)]:
             return False
         
-        # Check box
-        box_row = (row // self.box_size) * self.box_size
-        box_col = (col // self.box_size) * self.box_size
-        for r in range(box_row, box_row + self.box_size):
-            for c in range(box_col, box_col + self.box_size):
-                if self.board[r][c] == value:
-                    return False
+        # Check region
+        for r, c in self._region_neighbors(row, col):
+            if self.board[r][c] == value:
+                return False
         
         return True
 

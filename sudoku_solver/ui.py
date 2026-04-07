@@ -34,6 +34,7 @@ class SudokuSolverUI:
         self.original_board: List[List[int]] = [[0] * 9 for _ in range(9)]
         self.solution: List[List[int]] = []
         self.user_verified_correct = False
+        self.region_map: List[List[int]] = self._create_standard_region_map(self.board_size)
         
         self.solving = False
         self.solved = False
@@ -58,6 +59,42 @@ class SudokuSolverUI:
             style.theme_use("clam")
         except tk.TclError:
             pass
+
+    def _create_standard_region_map(self, size: int) -> List[List[int]]:
+        """Create the default square-region layout for standard Sudoku."""
+        box_size = int(size ** 0.5)
+        if box_size * box_size != size:
+            return [[row * size + col for col in range(size)] for row in range(size)]
+
+        return [
+            [(row // box_size) * box_size + (col // box_size) for col in range(size)]
+            for row in range(size)
+        ]
+
+    def _is_valid_region_map(self, region_map: List[List[int]], size: int) -> bool:
+        if len(region_map) != size or any(len(row) != size for row in region_map):
+            return False
+
+        region_counts = {}
+        for row in region_map:
+            for region_id in row:
+                region_counts[region_id] = region_counts.get(region_id, 0) + 1
+
+        return len(region_counts) == size and all(count == size for count in region_counts.values())
+
+    def apply_region_map(self, region_map: List[List[int]], status_text: str = "Custom regions loaded"):
+        """Apply a custom irregular region layout to the current board."""
+        if not self._is_valid_region_map(region_map, self.board_size):
+            messagebox.showerror(
+                "Invalid Regions",
+                f"Region map must be a {self.board_size}x{self.board_size} grid with exactly {self.board_size} regions of {self.board_size} cells each."
+            )
+            return False
+
+        self.region_map = [[int(cell) for cell in row] for row in region_map]
+        self.draw_board()
+        self.status_label.config(text=status_text)
+        return True
 
     def setup_ui(self):
         """Setup the complete UI"""
@@ -168,6 +205,18 @@ class SudokuSolverUI:
             load_frame,
             text="Load 4x4 Easy Sample",
             command=lambda: self.load_sample("puzzle_4x4_easy.json")
+        ).pack(fill=tk.X, pady=3)
+
+        ttk.Button(
+            load_frame,
+            text="Load Region Map",
+            command=self.load_region_map
+        ).pack(fill=tk.X, pady=3)
+
+        ttk.Button(
+            load_frame,
+            text="Reset to Standard Regions",
+            command=self.reset_regions
         ).pack(fill=tk.X, pady=3)
 
         # Main controls
@@ -311,6 +360,7 @@ class SudokuSolverUI:
         self.board_size = new_size
         self.board = [[0] * new_size for _ in range(new_size)]
         self.original_board = [[0] * new_size for _ in range(new_size)]
+        self.region_map = self._create_standard_region_map(new_size)
         self.cell_size = self.canvas_size // new_size
         self.selected_cell = None
         self.solved = False
@@ -324,8 +374,6 @@ class SudokuSolverUI:
     def draw_board(self):
         """Draw the sudoku board"""
         self.canvas.delete('all')
-        
-        box_size = int(self.board_size ** 0.5)
 
         # Draw a subtle board background first.
         self.canvas.create_rectangle(0, 0, self.canvas_size, self.canvas_size, fill="#f9fbff", outline="")
@@ -369,12 +417,28 @@ class SudokuSolverUI:
 
         # Draw grid last so the lines stay visible over filled cells.
         for i in range(self.board_size + 1):
-            is_box_boundary = i % box_size == 0
-            width = 3 if is_box_boundary else 1
-            line_color = "#10263f" if is_box_boundary else "#9aa7b4"
             x = i * self.cell_size
-            self.canvas.create_line(x, 0, x, self.canvas_size, width=width, fill=line_color)
-            self.canvas.create_line(0, x, self.canvas_size, x, width=width, fill=line_color)
+            self.canvas.create_line(x, 0, x, self.canvas_size, width=1, fill="#c5ced8")
+            self.canvas.create_line(0, x, self.canvas_size, x, width=1, fill="#c5ced8")
+
+        # Highlight irregular region boundaries.
+        boundary_color = "#1f4b99"
+        for row in range(self.board_size):
+            for col in range(self.board_size):
+                region_id = self.region_map[row][col]
+                x1 = col * self.cell_size
+                y1 = row * self.cell_size
+                x2 = x1 + self.cell_size
+                y2 = y1 + self.cell_size
+
+                if row == 0 or self.region_map[row - 1][col] != region_id:
+                    self.canvas.create_line(x1, y1, x2, y1, width=3, fill=boundary_color)
+                if col == 0 or self.region_map[row][col - 1] != region_id:
+                    self.canvas.create_line(x1, y1, x1, y2, width=3, fill=boundary_color)
+                if row == self.board_size - 1 or self.region_map[row + 1][col] != region_id:
+                    self.canvas.create_line(x1, y2, x2, y2, width=3, fill=boundary_color)
+                if col == self.board_size - 1 or self.region_map[row][col + 1] != region_id:
+                    self.canvas.create_line(x2, y1, x2, y2, width=3, fill=boundary_color)
 
     def on_canvas_click(self, event):
         """Handle canvas click"""
@@ -425,7 +489,7 @@ class SudokuSolverUI:
         """Solve in background thread"""
         try:
             puzzle_board = [row[:] for row in self.original_board]
-            self.solver = SudokuSolver(puzzle_board, self.board_size)
+            self.solver = SudokuSolver(puzzle_board, self.board_size, region_map=self.region_map)
             
             if self.solver.solve():
                 self.solution = self.solver.get_solution()
@@ -483,6 +547,32 @@ class SudokuSolverUI:
         self.draw_board()
         self.status_label.config(text="Reset to original puzzle")
 
+    def reset_regions(self):
+        """Reset to the standard square Sudoku regions for the current board size."""
+        self.region_map = self._create_standard_region_map(self.board_size)
+        self.draw_board()
+        self.status_label.config(text="Reset to standard regions")
+
+    def load_region_map(self):
+        """Load a region layout from a JSON file."""
+        file_path = filedialog.askopenfilename(
+            defaultdir=self.samples_dir,
+            filetypes=[("JSON files", "*.json")]
+        )
+
+        if not file_path:
+            return
+
+        try:
+            with open(file_path, 'r') as f:
+                data = json.load(f)
+
+            region_map = data.get('regions', data)
+            if self.apply_region_map(region_map, f"Region map loaded: {Path(file_path).name}"):
+                messagebox.showinfo("Success", "Region map loaded!")
+        except Exception as exc:
+            messagebox.showerror("Error", f"Failed to load region map: {exc}")
+
     def clear_all(self):
         """Clear entire board"""
         if messagebox.askyesno("Confirm", "Clear the entire board?"):
@@ -506,6 +596,7 @@ class SudokuSolverUI:
             data = {
                 'size': self.board_size,
                 'puzzle': self.original_board,
+                'regions': self.region_map,
                 'solution': self.solution if self.solution else None
             }
             with open(file_path, 'w') as f:
@@ -531,6 +622,9 @@ class SudokuSolverUI:
                 
                 self.original_board = data['puzzle']
                 self.board = [row[:] for row in self.original_board]
+                if 'regions' in data:
+                    if not self.apply_region_map(data['regions'], f"Puzzle loaded: {Path(file_path).name}"):
+                        return
                 self.solution = data.get('solution', [])
                 self.solved = False
                 
@@ -558,6 +652,9 @@ class SudokuSolverUI:
             
             self.original_board = data['puzzle']
             self.board = [row[:] for row in self.original_board]
+            if 'regions' in data:
+                if not self.apply_region_map(data['regions'], f"Sample loaded: {filename}"):
+                    return
             self.solution = []
             self.solved = False
             
