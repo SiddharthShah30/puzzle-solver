@@ -1,6 +1,6 @@
 """
 Sudoku Solver using Backtracking with Constraint Propagation.
-Supports standard square-region Sudoku and custom irregular region layouts.
+Supports square, rectangular, and custom irregular region layouts.
 """
 
 import time
@@ -8,18 +8,29 @@ from typing import Dict, List, Optional, Set, Tuple
 
 
 class SudokuSolver:
-    def __init__(self, board: List[List[int]], size: int = 9, region_map: Optional[List[List[int]]] = None):
+    def __init__(
+        self,
+        board: List[List[int]],
+        size: Optional[int] = None,
+        region_map: Optional[List[List[int]]] = None,
+        region_shape: Optional[Tuple[int, int]] = None,
+    ):
         """
         Initialize Sudoku Solver.
 
         Args:
             board: 2D list representing the sudoku board (0 = empty)
-            size: Sudoku size (1, 4, 9, 16)
+            size: Sudoku size (any positive integer).
             region_map: Optional 2D list mapping each cell to a region id.
+            region_shape: Optional (region_rows, region_cols) for rectangular regions.
         """
+        if size is None:
+            size = len(board)
+
         self.original_board = [row[:] for row in board]
         self.board = [row[:] for row in board]
         self.size = size
+        self.region_shape = region_shape
         self.solve_time = 0
         self.moves_count = 0
         self.constraints = None
@@ -28,10 +39,6 @@ class SudokuSolver:
         self.region_map = self._normalize_region_map(region_map)
         self.region_cells = self._build_region_cells()
 
-        # Validate size only for values this project intentionally supports.
-        if size not in [1, 4, 9, 16]:
-            raise ValueError(f"Sudoku size must be 1, 4, 9, or 16, got {size}")
-
         self._initialize_constraints()
 
     def _validate_board_shape(self):
@@ -39,15 +46,29 @@ class SudokuSolver:
             raise ValueError(f"Board must be a {self.size}x{self.size} grid")
 
     def _standard_region_map(self) -> List[List[int]]:
-        box_size = int(self.size ** 0.5)
-        if box_size * box_size != self.size:
-            raise ValueError(
-                "Standard square-region Sudoku requires a square grid size. "
-                "Provide a custom region_map for irregular layouts."
-            )
+        if self.region_shape is not None:
+            region_rows, region_cols = self.region_shape
+            if region_rows <= 0 or region_cols <= 0:
+                raise ValueError("Region dimensions must be positive integers")
+            if region_rows * region_cols != self.size:
+                raise ValueError(
+                    f"For rectangular regions, size must equal region_rows * region_cols; got {self.size} and {region_rows}x{region_cols}"
+                )
+        else:
+            region_rows = int(self.size ** 0.5)
+            region_cols = region_rows
+            if region_rows * region_cols != self.size:
+                raise ValueError(
+                    "Standard regions require a square grid size. Provide region_shape for rectangular layouts or region_map for irregular layouts."
+                )
+
+        regions_across = self.size // region_cols
 
         return [
-            [(row // box_size) * box_size + (col // box_size) for col in range(self.size)]
+            [
+                (row // region_rows) * regions_across + (col // region_cols)
+                for col in range(self.size)
+            ]
             for row in range(self.size)
         ]
 

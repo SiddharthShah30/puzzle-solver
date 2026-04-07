@@ -5,11 +5,11 @@ Advanced Sudoku solver with keyboard navigation, no minimum clue requirements, a
 ## ✨ Features
 
 ### 🎯 Universal Solving
-- **All Grid Sizes**: 1x1, 4x4, 9x9, 16x16
+- **All Grid Sizes**: Standard square boards plus custom rectangular grids like `2x4` and `3x4`
 - **Any Puzzle Setup**: No minimum clues required
 - **Perfect Accuracy**: Backtracking + constraint propagation
 - **Fast Performance**: <0.01s for standard puzzles
-- **Irregular Support**: Ready for any grid arrangement
+- **Irregular Support**: Ready for custom region maps and random region layouts
 
 ### ⌨️ Keyboard-Friendly Controls
 - **Arrow Keys**: Navigate cells (↑↓←→)
@@ -27,7 +27,7 @@ Advanced Sudoku solver with keyboard navigation, no minimum clue requirements, a
 
 ### 💾 Complete Puzzle Management
 - **Save/Load**: Export puzzles as JSON
-- **Sample Collection**: Pre-built 4x4 and 9x9 puzzles
+- **Sample Collection**: Pre-built 4x4, 8x8 `2x4`, and 9x9 puzzles
 - **Auto-Persistence**: All data saved automatically
 - **Full History**: Access all previous solves
 
@@ -41,7 +41,7 @@ python solver.py
 
 ### How to Solve a Puzzle
 1. **Start**: `python solver.py`
-2. **Select Size**: 1x1, 4x4, 9x9, or 16x16
+2. **Select Size**: Choose a preset size or click **Custom...** for a rectangular board
 3. **Input Puzzle**:
    - Click cells or use arrow keys
    - Type numbers (0 = empty)
@@ -94,6 +94,8 @@ Puzzle Solver/
 ### Custom Region Layouts
 The solver also supports irregular Sudoku layouts through a `regions` grid in the puzzle JSON.
 
+For standard rectangular layouts, use `region_shape` as `[region_rows, region_cols]`. The board size must equal `region_rows × region_cols`.
+
 Example:
 ```json
 {
@@ -113,6 +115,7 @@ Example:
 ```
 
 You can load a region map separately with **Load Region Map** or save/load it together with the puzzle.
+Use **Custom...** in the UI to set a board size and region dimensions like `2x4` or `3x4`.
 
 ### Efficiency Metrics
 - **9x9**: 0.001-0.1s (typical)

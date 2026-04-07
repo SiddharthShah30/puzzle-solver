@@ -7,12 +7,13 @@ Advanced Sudoku Solver UI with Keyboard Navigation
 """
 
 import tkinter as tk
-from tkinter import ttk, messagebox, filedialog
+from tkinter import ttk, messagebox, filedialog, simpledialog
 import threading
 from typing import List, Optional, Tuple, Set
 import hashlib
 import json
 from pathlib import Path
+import string
 
 from .solver import SudokuSolver
 from .learner import SudokuLearner
@@ -34,6 +35,7 @@ class SudokuSolverUI:
         self.original_board: List[List[int]] = [[0] * 9 for _ in range(9)]
         self.solution: List[List[int]] = []
         self.user_verified_correct = False
+        self.region_shape: Optional[Tuple[int, int]] = None
         self.region_map: List[List[int]] = self._create_standard_region_map(self.board_size)
         
         self.solving = False
@@ -62,12 +64,22 @@ class SudokuSolverUI:
 
     def _create_standard_region_map(self, size: int) -> List[List[int]]:
         """Create the default square-region layout for standard Sudoku."""
-        box_size = int(size ** 0.5)
-        if box_size * box_size != size:
-            return [[row * size + col for col in range(size)] for row in range(size)]
+        if self.region_shape is not None:
+            region_rows, region_cols = self.region_shape
+            if region_rows * region_cols != size:
+                raise ValueError("Region rows and columns must multiply to the board size")
+        else:
+            region_rows = int(size ** 0.5)
+            region_cols = region_rows
+            if region_rows * region_cols != size:
+                return [[row * size + col for col in range(size)] for row in range(size)]
 
+        regions_across = size // region_cols
         return [
-            [(row // box_size) * box_size + (col // box_size) for col in range(size)]
+            [
+                (row // region_rows) * regions_across + (col // region_cols)
+                for col in range(size)
+            ]
             for row in range(size)
         ]
 
@@ -92,9 +104,73 @@ class SudokuSolverUI:
             return False
 
         self.region_map = [[int(cell) for cell in row] for row in region_map]
+        self.region_shape = None
         self.draw_board()
         self.status_label.config(text=status_text)
         return True
+
+    def _display_value(self, value: int) -> str:
+        """Convert a numeric value to a compact label for buttons and cells."""
+        if value <= 9:
+            return str(value)
+
+        alphabet = string.ascii_uppercase + string.ascii_lowercase
+        index = value - 10
+        if 0 <= index < len(alphabet):
+            return alphabet[index]
+        return str(value)
+
+    def rebuild_number_pad(self):
+        """Rebuild the number pad for the current board size."""
+        if not hasattr(self, 'button_frame'):
+            return
+
+        for child in self.button_frame.winfo_children():
+            child.destroy()
+
+        columns = 8 if self.board_size > 8 else self.board_size
+        columns = max(columns, 1)
+
+        for i in range(1, self.board_size + 1):
+            btn = ttk.Button(
+                self.button_frame,
+                text=self._display_value(i),
+                width=3,
+                command=lambda n=i: self.input_number(n)
+            )
+            btn.grid(row=(i - 1) // columns, column=(i - 1) % columns, padx=2, pady=2)
+
+        clear_btn = ttk.Button(
+            self.button_frame,
+            text="Clear (0)",
+            command=lambda: self.input_number(0),
+            width=12
+        )
+        clear_btn.grid(row=(self.board_size // columns) + 1, column=0, columnspan=columns, pady=5)
+
+    def set_custom_dimensions(self):
+        """Prompt for a custom board size and rectangular region dimensions."""
+        size = simpledialog.askinteger("Custom Size", "Enter board size (N for an N x N grid):", minvalue=1)
+        if size is None:
+            return
+
+        region_rows = simpledialog.askinteger("Region Rows", "Enter region height (e.g. 2):", minvalue=1)
+        if region_rows is None:
+            return
+
+        region_cols = simpledialog.askinteger("Region Columns", "Enter region width (e.g. 4):", minvalue=1)
+        if region_cols is None:
+            return
+
+        if region_rows * region_cols != size:
+            messagebox.showerror(
+                "Invalid Dimensions",
+                "For rectangular Sudoku, the board size must equal region rows × region columns."
+            )
+            return
+
+        self.region_shape = (region_rows, region_cols)
+        self.change_board_size(size)
 
     def setup_ui(self):
         """Setup the complete UI"""
@@ -124,6 +200,12 @@ class SudokuSolverUI:
                 value=size,
                 command=lambda s=size: self.change_board_size(int(s))
             ).pack(side=tk.LEFT, padx=5)
+
+        ttk.Button(
+            size_frame,
+            text="Custom...",
+            command=self.set_custom_dimensions
+        ).pack(side=tk.LEFT, padx=8)
 
         # Main content area
         content = ttk.Frame(main_container)
@@ -156,26 +238,9 @@ class SudokuSolverUI:
         input_frame = ttk.LabelFrame(left_panel, text="🔢 Quick Input", padding=10)
         input_frame.pack(fill=tk.X, pady=10)
         
-        button_frame = ttk.Frame(input_frame)
-        button_frame.pack()
-        
-        # Number buttons
-        for i in range(1, min(self.board_size + 1, 17)):
-            btn = ttk.Button(
-                button_frame,
-                text=str(i) if i <= 9 else chr(55 + i),
-                width=3,
-                command=lambda n=i: self.input_number(n)
-            )
-            btn.grid(row=(i-1)//8, column=(i-1)%8, padx=2, pady=2)
-        
-        clear_btn = ttk.Button(
-            button_frame,
-            text="Clear (0)",
-            command=lambda: self.input_number(0),
-            width=12
-        )
-        clear_btn.grid(row=(max(self.board_size, 16))//8, column=0, columnspan=8, pady=5)
+        self.button_frame = ttk.Frame(input_frame)
+        self.button_frame.pack()
+        self.rebuild_number_pad()
 
         selected_info = ttk.Label(
             input_frame,
@@ -205,6 +270,12 @@ class SudokuSolverUI:
             load_frame,
             text="Load 4x4 Easy Sample",
             command=lambda: self.load_sample("puzzle_4x4_easy.json")
+        ).pack(fill=tk.X, pady=3)
+
+        ttk.Button(
+            load_frame,
+            text="Load 8x8 2x4 Sample",
+            command=lambda: self.load_sample("puzzle_8x8_2x4.json")
         ).pack(fill=tk.X, pady=3)
 
         ttk.Button(
@@ -290,22 +361,27 @@ class SudokuSolverUI:
         key = event.keysym
         char = event.char
 
+        if key in ('Delete', 'BackSpace', 'KP_Delete', 'KP_Decimal'):
+            self.input_number(0)
+            return 'break'
+
         if key.startswith('KP_'):
             keypad_value = key[3:]
             if keypad_value.isdigit():
                 self.input_number(int(keypad_value))
-                return 'break'
-            if keypad_value in ('Delete', 'Decimal'):
-                self.input_number(0)
                 return 'break'
 
         if char.isdigit():
             self.input_number(int(char))
             return 'break'
 
-        if self.board_size == 16 and char.lower() in {'a', 'b', 'c', 'd', 'e', 'f'}:
-            self.input_number(ord(char.lower()) - 87)
-            return 'break'
+        if char:
+            alphabet = string.ascii_uppercase + string.ascii_lowercase
+            if char in alphabet:
+                value = 10 + alphabet.index(char)
+                if value <= self.board_size:
+                    self.input_number(value)
+                    return 'break'
 
         return None
 
@@ -357,6 +433,9 @@ class SudokuSolverUI:
             messagebox.showwarning("Warning", "Cannot change size while solving!")
             return
 
+        if self.region_shape is not None and self.region_shape[0] * self.region_shape[1] != new_size:
+            self.region_shape = None
+
         self.board_size = new_size
         self.board = [[0] * new_size for _ in range(new_size)]
         self.original_board = [[0] * new_size for _ in range(new_size)]
@@ -365,6 +444,7 @@ class SudokuSolverUI:
         self.selected_cell = None
         self.solved = False
         self.solution = []
+        self.rebuild_number_pad()
         
         self.canvas.delete('all')
         self.draw_board()
@@ -403,7 +483,7 @@ class SudokuSolverUI:
                     else:
                         color = 'darkblue'  # User input
                     
-                    num_text = str(self.board[i][j]) if self.board_size <= 9 else chr(55 + self.board[i][j]) if self.board[i][j] <= 15 else str(self.board[i][j])
+                    num_text = self._display_value(self.board[i][j])
                     
                     x = j * self.cell_size + self.cell_size // 2
                     y = i * self.cell_size + self.cell_size // 2
@@ -489,7 +569,12 @@ class SudokuSolverUI:
         """Solve in background thread"""
         try:
             puzzle_board = [row[:] for row in self.original_board]
-            self.solver = SudokuSolver(puzzle_board, self.board_size, region_map=self.region_map)
+            self.solver = SudokuSolver(
+                puzzle_board,
+                self.board_size,
+                region_map=self.region_map,
+                region_shape=self.region_shape,
+            )
             
             if self.solver.solve():
                 self.solution = self.solver.get_solution()
@@ -549,6 +634,13 @@ class SudokuSolverUI:
 
     def reset_regions(self):
         """Reset to the standard square Sudoku regions for the current board size."""
+        if self.region_shape is None and int(self.board_size ** 0.5) ** 2 != self.board_size:
+            messagebox.showinfo(
+                "Info",
+                "This board size does not have a square standard layout. Load a region map or use Custom..."
+            )
+            return
+
         self.region_map = self._create_standard_region_map(self.board_size)
         self.draw_board()
         self.status_label.config(text="Reset to standard regions")
@@ -597,6 +689,7 @@ class SudokuSolverUI:
                 'size': self.board_size,
                 'puzzle': self.original_board,
                 'regions': self.region_map,
+                'region_shape': self.region_shape,
                 'solution': self.solution if self.solution else None
             }
             with open(file_path, 'w') as f:
@@ -617,6 +710,8 @@ class SudokuSolverUI:
                     data = json.load(f)
                 
                 new_size = data.get('size', 9)
+                if data.get('region_shape'):
+                    self.region_shape = tuple(data['region_shape'])
                 if new_size != self.board_size:
                     self.change_board_size(new_size)
                 
@@ -625,6 +720,8 @@ class SudokuSolverUI:
                 if 'regions' in data:
                     if not self.apply_region_map(data['regions'], f"Puzzle loaded: {Path(file_path).name}"):
                         return
+                if data.get('region_shape'):
+                    self.region_shape = tuple(data['region_shape'])
                 self.solution = data.get('solution', [])
                 self.solved = False
                 
@@ -647,6 +744,8 @@ class SudokuSolverUI:
                 data = json.load(f)
             
             new_size = data.get('size', 9)
+            if data.get('region_shape'):
+                self.region_shape = tuple(data['region_shape'])
             if new_size != self.board_size:
                 self.change_board_size(new_size)
             
@@ -655,6 +754,8 @@ class SudokuSolverUI:
             if 'regions' in data:
                 if not self.apply_region_map(data['regions'], f"Sample loaded: {filename}"):
                     return
+            if data.get('region_shape'):
+                self.region_shape = tuple(data['region_shape'])
             self.solution = []
             self.solved = False
             
