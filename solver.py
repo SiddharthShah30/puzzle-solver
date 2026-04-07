@@ -57,7 +57,7 @@ class PuzzleSolverHome:
 
         self.queens_btn = ttk.Button(
             sudoku_card,
-            text="LinkedIn Queens Solver",
+            text="Queens",
             command=self.launch_queens,
             width=30
         )
@@ -115,11 +115,11 @@ class PuzzleSolverHome:
                 self.status_label.config(text="Queens window is already open.")
                 return
 
-            from linkedin_queens_solver.ui import LinkedInQueensUI
+            from linkedin_queens_solver.ui import QueensUI
 
             self.queens_window = tk.Toplevel(self.root)
             self.queens_window.protocol("WM_DELETE_WINDOW", self._on_queens_close)
-            LinkedInQueensUI(self.queens_window)
+            QueensUI(self.queens_window)
             self.queens_btn.config(state="disabled")
             self.status_label.config(text="Queens solver launched.")
         except Exception as exc:
