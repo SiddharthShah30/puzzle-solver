@@ -8,7 +8,7 @@ Advanced Sudoku solver with keyboard navigation, no minimum clue requirements, a
 - **Exact LinkedIn Rules**: One queen per row, column, and color region
 - **No-Touch Constraint**: Queens cannot touch, including diagonals
 - **Tap Cycle Input**: Click cycle is `Empty -> X -> Queen -> Empty`
-- **Screenshot Import**: Load a screenshot and auto-extract region map by color
+- **Screenshot Import**: Load a screenshot and auto-detect board size + extract region map by color
 - **Interactive Board**: Region-colored board with sample puzzle support
 - **Custom Puzzle JSON**: Load your own `regions`, fixed queens, and blocked cells
 

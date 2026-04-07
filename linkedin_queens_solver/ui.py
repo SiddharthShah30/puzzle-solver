@@ -31,7 +31,7 @@ COLOR_PALETTE = {
 class QueensUI:
     def __init__(self, root: tk.Toplevel):
         self.root = root
-        self.root.title("LinkedIn Queens Solver")
+        self.root.title("Queens Solver")
         self.root.geometry("1050x760")
 
         self.samples_dir = Path(__file__).parent / "samples"
@@ -204,22 +204,96 @@ class QueensUI:
         if not image_path:
             return
 
-        size = simpledialog.askinteger(
-            "Board Size",
-            "Enter board size N for this screenshot (e.g. 7):",
-            minvalue=1,
-            parent=self.root,
-        )
-        if size is None:
-            return
-
         try:
             image = Image.open(image_path).convert("RGB")
+            size, confidence = self._estimate_grid_size(image)
+
+            if confidence < 1.08:
+                manual_size = simpledialog.askinteger(
+                    "Board Size",
+                    "Could not confidently detect board size. Enter N manually:",
+                    minvalue=1,
+                    parent=self.root,
+                )
+                if manual_size is None:
+                    return
+                size = manual_size
+            else:
+                use_detected = messagebox.askyesno(
+                    "Detected Board Size",
+                    f"Detected board size: {size}x{size} (confidence {confidence:.2f}).\nUse this size?",
+                    parent=self.root,
+                )
+                if not use_detected:
+                    manual_size = simpledialog.askinteger(
+                        "Board Size",
+                        "Enter board size N manually:",
+                        minvalue=1,
+                        parent=self.root,
+                    )
+                    if manual_size is None:
+                        return
+                    size = manual_size
+
             regions = self._regions_from_image(image, size)
             self._load_from_data({"regions": regions, "fixed_queens": [], "blocked": []}, source_label=Path(image_path).name)
             self.status.config(text=f"Imported regions from screenshot ({size}x{size}). Add X/Queens and solve.")
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc))
+
+    def _estimate_grid_size(self, image: "Image.Image", min_size: int = 4, max_size: int = 14) -> Tuple[int, float]:
+        """Estimate board size by scoring edge strength on candidate grid lines."""
+        width, height = image.size
+        if width < 20 or height < 20:
+            raise ValueError("Image is too small to detect a puzzle grid")
+
+        # Downscale very large images for faster scoring.
+        max_dim = 900
+        if max(width, height) > max_dim:
+            scale = max_dim / float(max(width, height))
+            new_size = (max(20, int(width * scale)), max(20, int(height * scale)))
+            image = image.resize(new_size)
+            width, height = image.size
+
+        gray = image.convert("L")
+        px = gray.load()
+
+        def vertical_edge_at(x: int) -> float:
+            x = min(max(1, x), width - 1)
+            total = 0.0
+            for y in range(height):
+                total += abs(int(px[x, y]) - int(px[x - 1, y]))
+            return total / height
+
+        def horizontal_edge_at(y: int) -> float:
+            y = min(max(1, y), height - 1)
+            total = 0.0
+            for x in range(width):
+                total += abs(int(px[x, y]) - int(px[x, y - 1]))
+            return total / width
+
+        min_size = max(2, min_size)
+        max_size = max(min_size, max_size)
+
+        scored: List[Tuple[int, float]] = []
+        for n in range(min_size, max_size + 1):
+            v_score = 0.0
+            h_score = 0.0
+
+            for i in range(1, n):
+                x = int(round(i * width / n))
+                y = int(round(i * height / n))
+                v_score += vertical_edge_at(x)
+                h_score += horizontal_edge_at(y)
+
+            avg_score = (v_score + h_score) / max(1, 2 * (n - 1))
+            scored.append((n, avg_score))
+
+        scored.sort(key=lambda item: item[1], reverse=True)
+        best_n, best_score = scored[0]
+        second_score = scored[1][1] if len(scored) > 1 else 1e-9
+        confidence = best_score / max(second_score, 1e-9)
+        return best_n, confidence
 
     def _regions_from_image(self, image: "Image.Image", size: int) -> List[List[int]]:
         width, height = image.size
