@@ -241,8 +241,13 @@ class QueensUI:
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc))
 
-    def _estimate_grid_size(self, image: "Image.Image", min_size: int = 4, max_size: int = 14) -> Tuple[int, float]:
-        """Estimate board size by scoring edge strength on candidate grid lines."""
+    def _estimate_grid_size(self, image, min_size: int = 4, max_size: int = 14) -> Tuple[int, float]:
+        """Estimate board size by matching candidate grid lines to edge profiles.
+
+        This uses line-vs-gap contrast with offset search, which is more robust than
+        sampling only internal lines and avoids common harmonic mistakes (for example,
+        detecting 8x8 as 4x4).
+        """
         width, height = image.size
         if width < 20 or height < 20:
             raise ValueError("Image is too small to detect a puzzle grid")
@@ -258,44 +263,155 @@ class QueensUI:
         gray = image.convert("L")
         px = gray.load()
 
-        def vertical_edge_at(x: int) -> float:
-            x = min(max(1, x), width - 1)
+        vertical_profile = [0.0 for _ in range(width)]
+        horizontal_profile = [0.0 for _ in range(height)]
+
+        for x in range(1, width):
             total = 0.0
             for y in range(height):
                 total += abs(int(px[x, y]) - int(px[x - 1, y]))
-            return total / height
+            vertical_profile[x] = total / height
 
-        def horizontal_edge_at(y: int) -> float:
-            y = min(max(1, y), height - 1)
+        for y in range(1, height):
             total = 0.0
             for x in range(width):
                 total += abs(int(px[x, y]) - int(px[x, y - 1]))
-            return total / width
+            horizontal_profile[y] = total / width
+
+        def smooth_profile(values: List[float], radius: int = 2) -> List[float]:
+            if len(values) <= 2 or radius <= 0:
+                return values[:]
+
+            prefix = [0.0]
+            running = 0.0
+            for value in values:
+                running += value
+                prefix.append(running)
+
+            out = [0.0 for _ in values]
+            last = len(values) - 1
+            for idx in range(len(values)):
+                left = max(0, idx - radius)
+                right = min(last, idx + radius)
+                out[idx] = (prefix[right + 1] - prefix[left]) / (right - left + 1)
+            return out
+
+        vertical_profile = smooth_profile(vertical_profile, radius=2)
+        horizontal_profile = smooth_profile(horizontal_profile, radius=2)
+
+        def detect_peak_count(profile: List[float]) -> int:
+            if len(profile) < 5:
+                return 0
+
+            p_min = min(profile)
+            p_max = max(profile)
+            if p_max <= p_min:
+                return 0
+
+            threshold = p_min + 0.55 * (p_max - p_min)
+            candidates = [
+                idx
+                for idx in range(1, len(profile) - 1)
+                if profile[idx] >= threshold and profile[idx] >= profile[idx - 1] and profile[idx] >= profile[idx + 1]
+            ]
+
+            if not candidates:
+                threshold = p_min + 0.40 * (p_max - p_min)
+                candidates = [
+                    idx
+                    for idx in range(1, len(profile) - 1)
+                    if profile[idx] >= threshold and profile[idx] >= profile[idx - 1] and profile[idx] >= profile[idx + 1]
+                ]
+
+            min_sep = max(2, int(len(profile) / (max_size * 2.2)))
+            selected: List[int] = []
+            for idx in sorted(candidates, key=lambda i: profile[i], reverse=True):
+                if all(abs(idx - prev) >= min_sep for prev in selected):
+                    selected.append(idx)
+
+            return len(selected)
+
+        peak_count_x = detect_peak_count(vertical_profile)
+        peak_count_y = detect_peak_count(horizontal_profile)
+        rough_size = int(round(((peak_count_x + peak_count_y) / 2.0) - 1.0))
+        rough_size = min(max(2, rough_size), max_size)
+
+        def mean_at_indices(profile: List[float], indices: List[int]) -> float:
+            if not indices:
+                return 0.0
+            return sum(profile[idx] for idx in indices) / float(len(indices))
+
+        def estimate_borders(profile: List[float], length: int) -> Tuple[int, int]:
+            zone = max(5, int(length * 0.20))
+            left_zone = profile[1:zone]
+            right_zone = profile[max(1, length - zone): length - 1]
+
+            if not left_zone or not right_zone:
+                return 1, max(2, length - 1)
+
+            left = 1 + max(range(len(left_zone)), key=lambda i: left_zone[i])
+            right_start = max(1, length - zone)
+            right = right_start + max(range(len(right_zone)), key=lambda i: right_zone[i])
+
+            if right - left < int(length * 0.45):
+                return 1, max(2, length - 1)
+            return left, right
+
+        def axis_score(profile: List[float], length: int, size: int) -> float:
+            if size <= 1:
+                return -1e9
+
+            border_left, border_right = estimate_borders(profile, length)
+            span = float(max(2, border_right - border_left))
+            step = span / float(size)
+            if step < 3.0:
+                return -1e9
+
+            # Small local jitter keeps scoring stable if border detection is off by 1-2 px.
+            best = -1e9
+            for jitter in (-2, -1, 0, 1, 2):
+                line_indices: List[int] = []
+                gap_indices: List[int] = []
+
+                for i in range(size + 1):
+                    pos = int(round(border_left + jitter + i * step))
+                    pos = min(max(1, pos), length - 1)
+                    line_indices.append(pos)
+
+                for i in range(size):
+                    mid = int(round(border_left + jitter + (i + 0.5) * step))
+                    mid = min(max(1, mid), length - 1)
+                    gap_indices.append(mid)
+
+                line_strength = mean_at_indices(profile, line_indices)
+                gap_strength = mean_at_indices(profile, gap_indices)
+
+                # High score when predicted lines hit strong edges but gaps stay quiet.
+                score = (line_strength - 0.80 * gap_strength) + 0.20 * line_strength
+                if score > best:
+                    best = score
+
+            return best
 
         min_size = max(2, min_size)
         max_size = max(min_size, max_size)
 
         scored: List[Tuple[int, float]] = []
         for n in range(min_size, max_size + 1):
-            v_score = 0.0
-            h_score = 0.0
-
-            for i in range(1, n):
-                x = int(round(i * width / n))
-                y = int(round(i * height / n))
-                v_score += vertical_edge_at(x)
-                h_score += horizontal_edge_at(y)
-
-            avg_score = (v_score + h_score) / max(1, 2 * (n - 1))
-            scored.append((n, avg_score))
+            v_score = axis_score(vertical_profile, width, n)
+            h_score = axis_score(horizontal_profile, height, n)
+            size_penalty = 0.06 * abs(n - rough_size)
+            scored.append((n, ((v_score + h_score) / 2.0) - size_penalty))
 
         scored.sort(key=lambda item: item[1], reverse=True)
         best_n, best_score = scored[0]
-        second_score = scored[1][1] if len(scored) > 1 else 1e-9
-        confidence = best_score / max(second_score, 1e-9)
+        second_score = scored[1][1] if len(scored) > 1 else -1e9
+        spread = max(best_score - second_score, 0.0)
+        baseline = max(abs(second_score), 1.0)
+        confidence = 1.0 + (spread / baseline)
         return best_n, confidence
 
-    def _regions_from_image(self, image: "Image.Image", size: int) -> List[List[int]]:
+    def _regions_from_image(self, image, size: int) -> List[List[int]]:
         width, height = image.size
         cell_w = width / size
         cell_h = height / size
@@ -400,7 +516,7 @@ class QueensUI:
 
     def load_puzzle_json(self):
         file_path = filedialog.askopenfilename(
-            defaultdir=self.samples_dir,
+            initialdir=self.samples_dir,
             filetypes=[("JSON files", "*.json")],
         )
         if not file_path:
