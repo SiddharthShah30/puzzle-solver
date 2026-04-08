@@ -4,6 +4,14 @@ Advanced Sudoku solver with keyboard navigation, no minimum clue requirements, a
 
 ## ✨ Features
 
+### 🌗 Tango Solver
+- **Binary Rules Enforced**: Fill each cell with Symbol 1 or Symbol 2
+- **Adjacency Constraint**: No three equal symbols adjacent horizontally or vertically
+- **Balance Constraint**: Every row and column has equal counts of both symbols
+- **Unique-Solution Check**: Solver rejects puzzles with multiple solutions
+- **Screenshot Import**: Load a Tango screenshot and auto-detect board size + symbols
+- **Interactive Board**: Click cycle is `Empty -> Symbol 1 -> Symbol 2 -> Empty`
+
 ### 👑 LinkedIn Queens Solver
 - **Exact LinkedIn Rules**: One queen per row, column, and color region
 - **No-Touch Constraint**: Queens cannot touch, including diagonals
@@ -84,6 +92,12 @@ Puzzle Solver/
 │   ├── ui.py                      # Queens puzzle interface
 │   ├── samples/
 │   │   └── linkedin_queens_7x7.json
+│   └── __init__.py
+├── tango_solver/                  # Tango solver
+│   ├── solver.py                  # Tango deduction + backtracking solver
+│   ├── ui.py                      # Tango interface + screenshot import
+│   ├── samples/
+│   │   └── tango_4x4_sample.json
 │   └── __init__.py
 ├── sudoku_solver/                 # Sudoku solver
 │   ├── solver.py                  # Backtracking algorithm

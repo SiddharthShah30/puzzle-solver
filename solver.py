@@ -16,6 +16,7 @@ class PuzzleSolverHome:
 
         self.sudoku_window = None
         self.queens_window = None
+        self.tango_window = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -66,6 +67,20 @@ class PuzzleSolverHome:
         ttk.Label(
             sudoku_card,
             text="Solves one-queen-per-row/column/region puzzles with no-touch constraints.",
+            font=("Helvetica", 10)
+        ).pack()
+
+        self.tango_btn = ttk.Button(
+            sudoku_card,
+            text="Tango",
+            command=self.launch_tango,
+            width=30
+        )
+        self.tango_btn.pack(pady=(12, 8))
+
+        ttk.Label(
+            sudoku_card,
+            text="Binary puzzle: avoid 3-in-a-row and keep equal symbol counts per row/column.",
             font=("Helvetica", 10)
         ).pack()
 
@@ -131,6 +146,30 @@ class PuzzleSolverHome:
         self.queens_window = None
         self.queens_btn.config(state="normal")
         self.status_label.config(text="Queens window closed.")
+
+    def launch_tango(self):
+        try:
+            if self.tango_window is not None and self.tango_window.winfo_exists():
+                self.tango_window.focus_force()
+                self.status_label.config(text="Tango window is already open.")
+                return
+
+            from tango_solver.ui import TangoUI
+
+            self.tango_window = tk.Toplevel(self.root)
+            self.tango_window.protocol("WM_DELETE_WINDOW", self._on_tango_close)
+            TangoUI(self.tango_window)
+            self.tango_btn.config(state="disabled")
+            self.status_label.config(text="Tango solver launched.")
+        except Exception as exc:
+            self.status_label.config(text=f"Error launching Tango: {exc}")
+
+    def _on_tango_close(self):
+        if self.tango_window is not None and self.tango_window.winfo_exists():
+            self.tango_window.destroy()
+        self.tango_window = None
+        self.tango_btn.config(state="normal")
+        self.status_label.config(text="Tango window closed.")
 
 
 def main():
