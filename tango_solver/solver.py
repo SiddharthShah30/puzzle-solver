@@ -15,11 +15,13 @@ import time
 class TangoPuzzleSolver:
     def __init__(self, clues: List[List[int]]):
         self.initial_board = [row[:] for row in clues]
-        self.size = len(clues)
-        if self.size == 0 or any(len(row) != self.size for row in clues):
-            raise ValueError("Clues must be a non-empty square grid")
-        if self.size % 2 != 0:
-            raise ValueError("Tango board size must be even")
+        self.rows = len(clues)
+        self.cols = len(clues[0]) if clues else 0
+
+        if self.rows == 0 or self.cols == 0 or any(len(row) != self.cols for row in clues):
+            raise ValueError("Clues must be a non-empty rectangular grid")
+        if self.rows % 2 != 0 or self.cols % 2 != 0:
+            raise ValueError("Tango board dimensions must both be even")
 
         valid_values = {0, 1, 2}
         for row in clues:
@@ -32,7 +34,7 @@ class TangoPuzzleSolver:
         self.solve_time = 0.0
         self.moves = 0
 
-    def solve(self, require_unique: bool = True) -> bool:
+    def solve(self, verify_unique: bool = False) -> bool:
         start = time.time()
         self.moves = 0
         self.solution = None
@@ -44,7 +46,7 @@ class TangoPuzzleSolver:
             return False
 
         solutions: List[List[List[int]]] = []
-        limit = 2 if require_unique else 1
+        limit = 2 if verify_unique else 1
 
         def backtrack(current: List[List[int]]) -> None:
             if len(solutions) >= limit:
@@ -63,6 +65,8 @@ class TangoPuzzleSolver:
                 if not self._propagate(nxt):
                     continue
                 backtrack(nxt)
+                if len(solutions) >= limit:
+                    return
 
         backtrack(board)
 
@@ -74,18 +78,18 @@ class TangoPuzzleSolver:
 
         if not solutions:
             return False
-        if require_unique and self.solution_count != 1:
+        if verify_unique and self.solution_count != 1:
             return False
         return True
 
     def _line_valid(self, line: List[int]) -> bool:
-        half = self.size // 2
+        half = len(line) // 2
         count1 = sum(1 for v in line if v == 1)
         count2 = sum(1 for v in line if v == 2)
         if count1 > half or count2 > half:
             return False
 
-        for i in range(self.size - 2):
+        for i in range(len(line) - 2):
             a, b, c = line[i], line[i + 1], line[i + 2]
             if a != 0 and a == b == c:
                 return False
@@ -97,7 +101,8 @@ class TangoPuzzleSolver:
 
     def _apply_line_rules(self, line: List[int]) -> Tuple[bool, bool]:
         changed = False
-        half = self.size // 2
+        line_len = len(line)
+        half = line_len // 2
 
         count1 = sum(1 for v in line if v == 1)
         count2 = sum(1 for v in line if v == 2)
@@ -106,17 +111,17 @@ class TangoPuzzleSolver:
             return False, changed
 
         if count1 == half:
-            for i in range(self.size):
+            for i in range(line_len):
                 if line[i] == 0:
                     line[i] = 2
                     changed = True
         elif count2 == half:
-            for i in range(self.size):
+            for i in range(line_len):
                 if line[i] == 0:
                     line[i] = 1
                     changed = True
 
-        for i in range(self.size - 2):
+        for i in range(line_len - 2):
             a, b, c = line[i], line[i + 1], line[i + 2]
 
             if a != 0 and a == b and c == 0:
@@ -142,7 +147,7 @@ class TangoPuzzleSolver:
         while changed:
             changed = False
 
-            for r in range(self.size):
+            for r in range(self.rows):
                 row = board[r][:]
                 ok, row_changed = self._apply_line_rules(row)
                 if not ok:
@@ -151,21 +156,21 @@ class TangoPuzzleSolver:
                     board[r] = row
                     changed = True
 
-            for c in range(self.size):
-                col = [board[r][c] for r in range(self.size)]
+            for c in range(self.cols):
+                col = [board[r][c] for r in range(self.rows)]
                 ok, col_changed = self._apply_line_rules(col)
                 if not ok:
                     return False
                 if col_changed:
-                    for r in range(self.size):
+                    for r in range(self.rows):
                         board[r][c] = col[r]
                     changed = True
 
-            for r in range(self.size):
+            for r in range(self.rows):
                 if not self._line_valid(board[r]):
                     return False
-            for c in range(self.size):
-                if not self._line_valid([board[r][c] for r in range(self.size)]):
+            for c in range(self.cols):
+                if not self._line_valid([board[r][c] for r in range(self.rows)]):
                     return False
 
         return True
@@ -185,8 +190,8 @@ class TangoPuzzleSolver:
     def _select_cell_with_smallest_domain(self, board: List[List[int]]) -> Optional[Tuple[int, int, List[int]]]:
         best: Optional[Tuple[int, int, List[int]]] = None
 
-        for r in range(self.size):
-            for c in range(self.size):
+        for r in range(self.rows):
+            for c in range(self.cols):
                 if board[r][c] != 0:
                     continue
                 domain = self._domain_for_cell(board, r, c)
@@ -208,6 +213,7 @@ class TangoPuzzleSolver:
         return {
             "time": self.solve_time,
             "moves": self.moves,
-            "size": self.size,
+            "rows": self.rows,
+            "cols": self.cols,
             "solutions_found": self.solution_count,
         }

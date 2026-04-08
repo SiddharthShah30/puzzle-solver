@@ -25,8 +25,9 @@ class TangoUI:
 
         self.samples_dir = Path(__file__).parent / "samples"
 
-        self.size = 4
-        self.board: List[List[int]] = [[0 for _ in range(self.size)] for _ in range(self.size)]
+        self.rows = 4
+        self.cols = 4
+        self.board: List[List[int]] = [[0 for _ in range(self.cols)] for _ in range(self.rows)]
         self.fixed_cells: Set[Tuple[int, int]] = set()
         self.solution_cells: Set[Tuple[int, int]] = set()
         self.cell_size = 90
@@ -121,14 +122,16 @@ class TangoUI:
 
     def _draw_board(self):
         self.canvas.delete("all")
-        board_px = min(620, max(320, self.size * self.cell_size))
-        self.cell_size = max(45, min(110, board_px // self.size))
-        board_px = self.cell_size * self.size
+        board_width = max(320, self.cols * self.cell_size)
+        board_height = max(320, self.rows * self.cell_size)
+        self.cell_size = max(45, min(110, min(board_width // max(1, self.cols), board_height // max(1, self.rows))))
+        board_px_w = self.cell_size * self.cols
+        board_px_h = self.cell_size * self.rows
 
-        self.canvas.config(width=board_px + 2, height=board_px + 2)
+        self.canvas.config(width=board_px_w + 2, height=board_px_h + 2)
 
-        for r in range(self.size):
-            for c in range(self.size):
+        for r in range(self.rows):
+            for c in range(self.cols):
                 x0 = c * self.cell_size
                 y0 = r * self.cell_size
                 x1 = x0 + self.cell_size
@@ -147,18 +150,18 @@ class TangoUI:
                 if (r, c) in self.fixed_cells:
                     self.canvas.create_rectangle(x0 + 3, y0 + 3, x1 - 3, y1 - 3, outline="#4f5f75", width=2)
 
-        self.canvas.create_rectangle(0, 0, board_px, board_px, outline="#222222", width=2)
+        self.canvas.create_rectangle(0, 0, board_px_w, board_px_h, outline="#222222", width=2)
 
-    def _parse_grid_text(self, raw_text: str, size: int) -> List[List[int]]:
-        rows = [line.strip() for line in raw_text.strip().splitlines() if line.strip()]
-        if len(rows) != size:
-            raise ValueError(f"Expected {size} rows, found {len(rows)}")
+    def _parse_grid_text(self, raw_text: str, rows: int, cols: int) -> List[List[int]]:
+        lines = [line.strip() for line in raw_text.strip().splitlines() if line.strip()]
+        if len(lines) != rows:
+            raise ValueError(f"Expected {rows} rows, found {len(lines)}")
 
         parsed: List[List[int]] = []
-        for line in rows:
+        for line in lines:
             cells = [token for token in line.replace(',', ' ').split(' ') if token]
-            if len(cells) != size:
-                raise ValueError(f"Each row must have {size} integers")
+            if len(cells) != cols:
+                raise ValueError(f"Each row must have {cols} integers")
             row_vals = [int(token) for token in cells]
             if any(v not in (0, 1, 2) for v in row_vals):
                 raise ValueError("Only values 0, 1, 2 are allowed")
@@ -178,17 +181,20 @@ class TangoUI:
         ttk.Label(container, text="Create Custom Tango Puzzle", font=("Helvetica", 12, "bold")).pack(anchor="w")
         ttk.Label(
             container,
-            text="Board size must be even (4, 6, 8, ...). Enter clues with 0=empty, 1=symbol1, 2=symbol2.",
+            text="Board dimensions must both be even (for example 4x4, 4x6, 6x8). Enter clues with 0=empty, 1=symbol1, 2=symbol2.",
             wraplength=610,
         ).pack(anchor="w", pady=(6, 8))
 
         size_row = ttk.Frame(container)
         size_row.pack(fill=tk.X)
-        ttk.Label(size_row, text="Board size N:").pack(side=tk.LEFT)
-        size_var = tk.StringVar(value="4")
-        ttk.Entry(size_row, textvariable=size_var, width=8).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Label(size_row, text="Board size (rows x cols):").pack(side=tk.LEFT)
+        rows_var = tk.StringVar(value="4")
+        cols_var = tk.StringVar(value="4")
+        ttk.Entry(size_row, textvariable=rows_var, width=6).pack(side=tk.LEFT, padx=(8, 4))
+        ttk.Label(size_row, text="x").pack(side=tk.LEFT)
+        ttk.Entry(size_row, textvariable=cols_var, width=6).pack(side=tk.LEFT, padx=(4, 0))
 
-        ttk.Label(container, text="Clue grid (N lines, N integers each):").pack(anchor="w", pady=(12, 4))
+        ttk.Label(container, text="Clue grid (rows lines, cols integers each):").pack(anchor="w", pady=(12, 4))
         clue_text = tk.Text(container, height=16, width=72)
         clue_text.pack(fill=tk.BOTH, expand=True)
         clue_text.insert(
@@ -201,11 +207,12 @@ class TangoUI:
 
         def apply_setup():
             try:
-                size = int(size_var.get())
-                if size < 2 or size % 2 != 0:
-                    raise ValueError("Board size must be an even number")
-                clues = self._parse_grid_text(clue_text.get("1.0", tk.END), size)
-                self._load_from_data({"size": size, "clues": clues}, source_label="custom setup")
+                rows = int(rows_var.get())
+                cols = int(cols_var.get())
+                if rows < 2 or cols < 2 or rows % 2 != 0 or cols % 2 != 0:
+                    raise ValueError("Board dimensions must both be even numbers")
+                clues = self._parse_grid_text(clue_text.get("1.0", tk.END), rows, cols)
+                self._load_from_data({"rows": rows, "cols": cols, "clues": clues}, source_label="custom setup")
                 setup.destroy()
             except Exception as exc:
                 messagebox.showerror("Invalid Puzzle", str(exc), parent=setup)
@@ -260,6 +267,38 @@ class TangoUI:
         v_profile = smooth(v_profile)
         h_profile = smooth(h_profile)
 
+        def detect_peak_count(profile: List[float]) -> int:
+            if len(profile) < 5:
+                return 0
+
+            p_min = min(profile)
+            p_max = max(profile)
+            if p_max <= p_min:
+                return 0
+
+            threshold = p_min + 0.58 * (p_max - p_min)
+
+            def collect(local_threshold: float) -> List[int]:
+                return [
+                    idx
+                    for idx in range(1, len(profile) - 1)
+                    if profile[idx] >= local_threshold and profile[idx] >= profile[idx - 1] and profile[idx] >= profile[idx + 1]
+                ]
+
+            candidates = collect(threshold)
+            if not candidates:
+                candidates = collect(p_min + 0.45 * (p_max - p_min))
+
+            min_sep = max(2, int(len(profile) / 30))
+            chosen: List[int] = []
+            for idx in sorted(candidates, key=lambda i: profile[i], reverse=True):
+                if all(abs(idx - prev) >= min_sep for prev in chosen):
+                    chosen.append(idx)
+            return len(chosen)
+
+        rough_rows = max(2, detect_peak_count(h_profile) - 1)
+        rough_cols = max(2, detect_peak_count(v_profile) - 1)
+
         def border_pair(profile: List[float], length: int) -> Tuple[int, int]:
             zone = max(8, int(length * 0.20))
             left_idx = 1 + max(range(len(profile[1:zone])), key=lambda i: profile[1 + i])
@@ -308,6 +347,268 @@ class TangoUI:
         confidence = 1.0 + max(0.0, best_score - second_score) / max(abs(second_score), 1.0)
         return best_n, confidence
 
+    def _estimate_board_shape(self, image, min_size: int = 2, max_size: int = 16) -> Tuple[int, int, Tuple[int, int, int, int], float]:
+        width, height = image.size
+        gray = image.convert("L")
+        px = gray.load()
+
+        v_profile = [0.0 for _ in range(width)]
+        h_profile = [0.0 for _ in range(height)]
+
+        for x in range(1, width):
+            total = 0.0
+            for y in range(height):
+                total += abs(int(px[x, y]) - int(px[x - 1, y]))
+            v_profile[x] = total / max(1, height)
+
+        for y in range(1, height):
+            total = 0.0
+            for x in range(width):
+                total += abs(int(px[x, y]) - int(px[x, y - 1]))
+            h_profile[y] = total / max(1, width)
+
+        def smooth(values: List[float], radius: int = 2) -> List[float]:
+            out = [0.0 for _ in values]
+            prefix = [0.0]
+            running = 0.0
+            for value in values:
+                running += value
+                prefix.append(running)
+            for idx in range(len(values)):
+                left = max(0, idx - radius)
+                right = min(len(values) - 1, idx + radius)
+                out[idx] = (prefix[right + 1] - prefix[left]) / (right - left + 1)
+            return out
+
+        v_profile = smooth(v_profile)
+        h_profile = smooth(h_profile)
+
+        def detect_peak_count(profile: List[float]) -> int:
+            if len(profile) < 5:
+                return 0
+
+            p_min = min(profile)
+            p_max = max(profile)
+            if p_max <= p_min:
+                return 0
+
+            def collect(threshold: float) -> List[int]:
+                return [
+                    idx
+                    for idx in range(1, len(profile) - 1)
+                    if profile[idx] >= threshold and profile[idx] >= profile[idx - 1] and profile[idx] >= profile[idx + 1]
+                ]
+
+            candidates = collect(p_min + 0.58 * (p_max - p_min))
+            if not candidates:
+                candidates = collect(p_min + 0.45 * (p_max - p_min))
+
+            min_sep = max(2, int(len(profile) / 30))
+            chosen: List[int] = []
+            for idx in sorted(candidates, key=lambda i: profile[i], reverse=True):
+                if all(abs(idx - prev) >= min_sep for prev in chosen):
+                    chosen.append(idx)
+            return len(chosen)
+
+        rough_rows = max(2, detect_peak_count(h_profile) - 1)
+        rough_cols = max(2, detect_peak_count(v_profile) - 1)
+
+        def border_pair(profile: List[float], length: int) -> Tuple[int, int]:
+            zone = max(8, int(length * 0.20))
+            left_zone = profile[1:zone]
+            right_start = max(1, length - zone)
+            right_zone = profile[right_start:length - 1]
+            if not left_zone or not right_zone:
+                return 1, length - 1
+            left_idx = 1 + max(range(len(left_zone)), key=lambda i: left_zone[i])
+            right_idx = right_start + max(range(len(right_zone)), key=lambda i: right_zone[i])
+            if right_idx - left_idx < int(length * 0.35):
+                return 1, length - 1
+            return left_idx, right_idx
+
+        def mean_at(profile: List[float], indices: List[int]) -> float:
+            if not indices:
+                return 0.0
+            return sum(profile[i] for i in indices) / len(indices)
+
+        def axis_score(profile: List[float], length: int, count: int) -> Tuple[float, Tuple[int, int]]:
+            left, right = border_pair(profile, length)
+            span = max(2, right - left)
+            step = span / float(count)
+            if step < 3:
+                return -1e9, (left, right)
+
+            best = -1e9
+            for jitter in (-2, -1, 0, 1, 2):
+                lines = []
+                gaps = []
+                for i in range(count + 1):
+                    pos = int(round(left + jitter + i * step))
+                    lines.append(min(max(1, pos), length - 1))
+                for i in range(count):
+                    pos = int(round(left + jitter + (i + 0.5) * step))
+                    gaps.append(min(max(1, pos), length - 1))
+                line_strength = mean_at(profile, lines)
+                gap_strength = mean_at(profile, gaps)
+                score = (line_strength - 0.80 * gap_strength) + 0.20 * line_strength
+                best = max(best, score)
+            return best, (left, right)
+
+        row_scored = []
+        col_scored = []
+        for n in range(max(2, min_size), max(min_size, max_size) + 1):
+            row_score, row_bounds = axis_score(h_profile, height, n)
+            col_score, col_bounds = axis_score(v_profile, width, n)
+            row_scored.append((n, row_score - 0.08 * abs(n - rough_rows), row_bounds))
+            col_scored.append((n, col_score - 0.08 * abs(n - rough_cols), col_bounds))
+
+        row_scored.sort(key=lambda item: item[1], reverse=True)
+        col_scored.sort(key=lambda item: item[1], reverse=True)
+
+        row_lookup = {n: (score, bounds) for n, score, bounds in row_scored}
+        col_lookup = {n: (score, bounds) for n, score, bounds in col_scored}
+
+        best_rows = rough_rows if rough_rows in row_lookup else row_scored[0][0]
+        best_cols = rough_cols if rough_cols in col_lookup else col_scored[0][0]
+
+        if best_rows in row_lookup:
+            best_row_score, (top, bottom) = row_lookup[best_rows]
+        else:
+            best_row_score, (top, bottom) = row_scored[0][1:3]
+
+        if best_cols in col_lookup:
+            best_col_score, (left, right) = col_lookup[best_cols]
+        else:
+            best_col_score, (left, right) = col_scored[0][1:3]
+
+        second_row_score = row_scored[1][1] if len(row_scored) > 1 else -1e9
+        second_col_score = col_scored[1][1] if len(col_scored) > 1 else -1e9
+        confidence = 1.0 + min(
+            max(0.0, best_row_score - second_row_score) / max(abs(second_row_score), 1.0),
+            max(0.0, best_col_score - second_col_score) / max(abs(second_col_score), 1.0),
+        )
+
+        return best_rows, best_cols, (left, top, right, bottom), confidence
+
+    def _detect_symbol_features(self, image, bounds: Tuple[int, int, int, int], rows: int, cols: int):
+        left, top, right, bottom = bounds
+        board_w = max(1, right - left)
+        board_h = max(1, bottom - top)
+        cell_w = board_w / cols
+        cell_h = board_h / rows
+
+        features = []
+        for r in range(rows):
+            for c in range(cols):
+                x0 = int(left + c * cell_w)
+                y0 = int(top + r * cell_h)
+                x1 = int(left + (c + 1) * cell_w)
+                y1 = int(top + (r + 1) * cell_h)
+                x0 = max(0, min(image.size[0] - 1, x0))
+                y0 = max(0, min(image.size[1] - 1, y0))
+                x1 = max(x0 + 1, min(image.size[0], x1))
+                y1 = max(y0 + 1, min(image.size[1], y1))
+
+                margin_x = max(2, int((x1 - x0) * 0.12))
+                margin_y = max(2, int((y1 - y0) * 0.12))
+                sample_x0 = x0 + margin_x
+                sample_y0 = y0 + margin_y
+                sample_x1 = x1 - margin_x
+                sample_y1 = y1 - margin_y
+                if sample_x1 <= sample_x0 or sample_y1 <= sample_y0:
+                    sample_x0, sample_y0, sample_x1, sample_y1 = x0, y0, x1, y1
+
+                corner_points = [
+                    image.getpixel((min(image.size[0] - 1, x0 + 1), min(image.size[1] - 1, y0 + 1))),
+                    image.getpixel((max(0, x1 - 2), min(image.size[1] - 1, y0 + 1))),
+                    image.getpixel((min(image.size[0] - 1, x0 + 1), max(0, y1 - 2))),
+                    image.getpixel((max(0, x1 - 2), max(0, y1 - 2))),
+                ]
+                bg = tuple(sum(point[idx] for point in corner_points) / len(corner_points) for idx in range(3))
+
+                fg_pixels = []
+                total_pixels = 0
+                for y in range(sample_y0, sample_y1):
+                    for x in range(sample_x0, sample_x1):
+                        r_, g_, b_ = image.getpixel((x, y))
+                        dr = r_ - bg[0]
+                        dg = g_ - bg[1]
+                        db = b_ - bg[2]
+                        dist = (dr * dr + dg * dg + db * db) ** 0.5
+                        total_pixels += 1
+                        if dist > 32:
+                            fg_pixels.append((x, y, r_, g_, b_))
+
+                fg_fraction = len(fg_pixels) / max(1, total_pixels)
+                if fg_fraction < 0.02:
+                    features.append({"occupied": False, "feature": None})
+                    continue
+
+                min_x = min(p[0] for p in fg_pixels)
+                max_x = max(p[0] for p in fg_pixels)
+                min_y = min(p[1] for p in fg_pixels)
+                max_y = max(p[1] for p in fg_pixels)
+                bbox_w = max(1, max_x - min_x + 1)
+                bbox_h = max(1, max_y - min_y + 1)
+                aspect = bbox_w / bbox_h
+
+                avg_r = sum(p[2] for p in fg_pixels) / len(fg_pixels)
+                avg_g = sum(p[3] for p in fg_pixels) / len(fg_pixels)
+                avg_b = sum(p[4] for p in fg_pixels) / len(fg_pixels)
+                cx = sum(p[0] for p in fg_pixels) / len(fg_pixels)
+                cy = sum(p[1] for p in fg_pixels) / len(fg_pixels)
+                spread_x = sum(abs(p[0] - cx) for p in fg_pixels) / len(fg_pixels)
+                spread_y = sum(abs(p[1] - cy) for p in fg_pixels) / len(fg_pixels)
+
+                features.append({
+                    "occupied": True,
+                    "feature": [avg_r, avg_g, avg_b, fg_fraction * 255.0, aspect * 80.0, spread_x + spread_y],
+                })
+
+        return features
+
+    def _cluster_binary_features(self, features):
+        vectors = [entry["feature"] for entry in features if entry["occupied"] and entry["feature"] is not None]
+        if not vectors:
+            raise ValueError("Could not detect any symbols in the screenshot")
+        if len(vectors) == 1:
+            return [1 if entry["occupied"] else 0 for entry in features]
+
+        centers = [vectors[0][:], vectors[-1][:]]
+
+        for _ in range(8):
+            groups = {0: [], 1: []}
+            for vector in vectors:
+                distances = [sum((vector[i] - centers[idx][i]) ** 2 for i in range(len(vector))) for idx in range(2)]
+                group = 0 if distances[0] <= distances[1] else 1
+                groups[group].append(vector)
+            for idx in (0, 1):
+                if groups[idx]:
+                    centers[idx] = [sum(vector[i] for vector in groups[idx]) / len(groups[idx]) for i in range(len(centers[idx]))]
+
+        labels = []
+        for entry in features:
+            if not entry["occupied"]:
+                labels.append(0)
+                continue
+            vector = entry["feature"]
+            distances = [sum((vector[i] - centers[idx][i]) ** 2 for i in range(len(vector))) for idx in range(2)]
+            labels.append(1 if distances[0] <= distances[1] else 2)
+
+        return labels
+
+    def _extract_clues_from_image(self, image, rows: int, cols: int, bounds: Tuple[int, int, int, int]) -> List[List[int]]:
+        features = self._detect_symbol_features(image, bounds, rows, cols)
+        labels = self._cluster_binary_features(features)
+
+        clues = [[0 for _ in range(cols)] for _ in range(rows)]
+        idx = 0
+        for r in range(rows):
+            for c in range(cols):
+                clues[r][c] = labels[idx]
+                idx += 1
+        return clues
+
     def _classify_symbol_cell(self, image, x0: int, y0: int, x1: int, y1: int) -> int:
         orange_hits = 0
         blue_hits = 0
@@ -342,27 +643,6 @@ class TangoUI:
             return 2
         return 0
 
-    def _extract_clues_from_image(self, image, size: int) -> List[List[int]]:
-        width, height = image.size
-        cell_w = width / size
-        cell_h = height / size
-
-        clues = [[0 for _ in range(size)] for _ in range(size)]
-
-        for r in range(size):
-            for c in range(size):
-                x0 = int(c * cell_w)
-                y0 = int(r * cell_h)
-                x1 = int((c + 1) * cell_w)
-                y1 = int((r + 1) * cell_h)
-                x0 = max(0, min(width - 1, x0))
-                y0 = max(0, min(height - 1, y0))
-                x1 = max(x0 + 1, min(width, x1))
-                y1 = max(y0 + 1, min(height, y1))
-                clues[r][c] = self._classify_symbol_cell(image, x0, y0, x1, y1)
-
-        return clues
-
     def import_from_screenshot(self):
         if Image is None:
             messagebox.showerror(
@@ -380,38 +660,49 @@ class TangoUI:
 
         try:
             image = Image.open(image_path).convert("RGB")
-            size, confidence = self._estimate_grid_size(image)
+            rows, cols, bounds, confidence = self._estimate_board_shape(image)
 
-            if size % 2 != 0:
-                size += 1
-
-            if confidence < 1.08:
-                manual_size = simpledialog.askinteger(
-                    "Board Size",
-                    "Could not confidently detect board size. Enter even N manually:",
+            if confidence < 1.05:
+                manual_rows = simpledialog.askinteger(
+                    "Board Rows",
+                    "Could not confidently detect the board. Enter row count manually:",
                     minvalue=2,
                     parent=self.root,
                 )
-                if manual_size is None:
+                manual_cols = simpledialog.askinteger(
+                    "Board Columns",
+                    "Enter column count manually:",
+                    minvalue=2,
+                    parent=self.root,
+                )
+                if manual_rows is None or manual_cols is None:
                     return
-                size = manual_size
+                rows, cols = manual_rows, manual_cols
 
-            if size % 2 != 0:
-                raise ValueError("Board size must be even for Tango")
+            if rows % 2 != 0 or cols % 2 != 0:
+                raise ValueError("Board dimensions must both be even for Tango")
 
-            clues = self._extract_clues_from_image(image, size)
-            self._load_from_data({"size": size, "clues": clues}, source_label=Path(image_path).name)
-            self.status.config(text=f"Imported clues from screenshot ({size}x{size}).")
+            clues = self._extract_clues_from_image(image, rows, cols, bounds)
+            use_detected = messagebox.askyesno(
+                "Detected Tango Puzzle",
+                f"Detected a {rows}x{cols} board with symbol clues. Use this detection?",
+                parent=self.root,
+            )
+            if not use_detected:
+                return
+
+            self._load_from_data({"rows": rows, "cols": cols, "clues": clues}, source_label=Path(image_path).name)
+            self.status.config(text=f"Imported clues from screenshot ({rows}x{cols}).")
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc), parent=self.root)
 
     def on_canvas_click(self, event):
-        if self.size == 0:
+        if self.rows == 0 or self.cols == 0:
             return
 
         c = event.x // self.cell_size
         r = event.y // self.cell_size
-        if not (0 <= r < self.size and 0 <= c < self.size):
+        if not (0 <= r < self.rows and 0 <= c < self.cols):
             return
 
         if (r, c) in self.fixed_cells:
@@ -427,24 +718,33 @@ class TangoUI:
             raise ValueError("Puzzle JSON must include a 'clues' grid")
 
         clues = data["clues"]
-        size = data.get("size", len(clues))
+        rows = data.get("rows")
+        cols = data.get("cols")
 
-        if size % 2 != 0:
-            raise ValueError("Board size must be even for Tango")
-        if len(clues) != size or any(len(row) != size for row in clues):
-            raise ValueError("Clues grid must be size x size")
+        if rows is None or cols is None:
+            if "size" in data:
+                rows = cols = int(data["size"])
+            else:
+                rows = len(clues)
+                cols = len(clues[0]) if clues else 0
+
+        if rows % 2 != 0 or cols % 2 != 0:
+            raise ValueError("Board dimensions must both be even for Tango")
+        if len(clues) != rows or any(len(row) != cols for row in clues):
+            raise ValueError("Clues grid must match the declared rows and columns")
 
         for row in clues:
             for value in row:
                 if value not in (0, 1, 2):
                     raise ValueError("Clues must contain only 0, 1, or 2")
 
-        self.size = size
+        self.rows = rows
+        self.cols = cols
         self.board = [row[:] for row in clues]
-        self.fixed_cells = {(r, c) for r in range(size) for c in range(size) if self.board[r][c] != 0}
+        self.fixed_cells = {(r, c) for r in range(rows) for c in range(cols) if self.board[r][c] != 0}
         self.solution_cells.clear()
         self._draw_board()
-        self.status.config(text=f"Loaded Tango puzzle from {source_label}.")
+        self.status.config(text=f"Loaded Tango puzzle from {source_label} ({rows}x{cols}).")
 
     def load_sample(self, filename: str):
         path = self.samples_dir / filename
@@ -472,8 +772,9 @@ class TangoUI:
             return
 
         data = {
-            "size": self.size,
-            "clues": [[self.board[r][c] if (r, c) in self.fixed_cells else 0 for c in range(self.size)] for r in range(self.size)],
+            "rows": self.rows,
+            "cols": self.cols,
+            "clues": [[self.board[r][c] if (r, c) in self.fixed_cells else 0 for c in range(self.cols)] for r in range(self.rows)],
         }
 
         with open(file_path, "w", encoding="utf-8") as f:
@@ -487,8 +788,8 @@ class TangoUI:
         self._load_from_data(data, source_label=path.name)
 
     def clear_user_entries(self):
-        for r in range(self.size):
-            for c in range(self.size):
+        for r in range(self.rows):
+            for c in range(self.cols):
                 if (r, c) not in self.fixed_cells:
                     self.board[r][c] = 0
         self.solution_cells.clear()
@@ -496,7 +797,7 @@ class TangoUI:
         self.status.config(text="Cleared user entries.")
 
     def reset_to_clues(self):
-        self.board = [[self.board[r][c] if (r, c) in self.fixed_cells else 0 for c in range(self.size)] for r in range(self.size)]
+        self.board = [[self.board[r][c] if (r, c) in self.fixed_cells else 0 for c in range(self.cols)] for r in range(self.rows)]
         self.solution_cells.clear()
         self._draw_board()
         self.status.config(text="Reset board to original clues.")
@@ -519,13 +820,13 @@ class TangoUI:
     def solve(self):
         try:
             solver = TangoPuzzleSolver(self.board)
-            solved = solver.solve(require_unique=True)
+            solved = solver.solve(verify_unique=False)
             if solved:
                 solved_board = solver.get_solution_board()
                 self.solution_cells = {
                     (r, c)
-                    for r in range(self.size)
-                    for c in range(self.size)
+                    for r in range(self.rows)
+                    for c in range(self.cols)
                     if (r, c) not in self.fixed_cells and solved_board[r][c] != self.board[r][c]
                 }
                 self.board = solved_board
@@ -533,20 +834,12 @@ class TangoUI:
                 self._draw_board()
                 self.status.config(
                     text=(
-                        f"Solved {self.size}x{self.size} in {stats['time']:.3f}s, "
-                        f"{stats['moves']} search moves, unique solution."
+                        f"Solved {self.rows}x{self.cols} in {stats['time']:.3f}s, "
+                        f"{stats['moves']} search moves."
                     )
                 )
             else:
-                if solver.solution_count > 1:
-                    messagebox.showwarning(
-                        "Not Unique",
-                        "Puzzle has multiple valid solutions. Tango puzzles should have exactly one.",
-                        parent=self.root,
-                    )
-                    self.status.config(text="Found multiple solutions; puzzle is not uniquely determined.")
-                else:
-                    self.status.config(text="No valid solution found for current clues.")
+                self.status.config(text="No valid solution found for current clues.")
         except Exception as exc:
             messagebox.showerror("Solve Error", str(exc), parent=self.root)
 

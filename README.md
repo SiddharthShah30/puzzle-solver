@@ -8,8 +8,9 @@ Advanced Sudoku solver with keyboard navigation, no minimum clue requirements, a
 - **Binary Rules Enforced**: Fill each cell with Symbol 1 or Symbol 2
 - **Adjacency Constraint**: No three equal symbols adjacent horizontally or vertically
 - **Balance Constraint**: Every row and column has equal counts of both symbols
+- **Rectangular Boards**: Supports even-sized grids like `4x6`, `6x8`, and `16x6`
 - **Unique-Solution Check**: Solver rejects puzzles with multiple solutions
-- **Screenshot Import**: Load a Tango screenshot and auto-detect board size + symbols
+- **Screenshot Import**: Load a Tango screenshot and auto-detect board dimensions + symbols
 - **Interactive Board**: Click cycle is `Empty -> Symbol 1 -> Symbol 2 -> Empty`
 
 ### 👑 LinkedIn Queens Solver
