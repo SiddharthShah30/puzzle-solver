@@ -214,9 +214,9 @@ class QueensUI:
             regions = self._regions_from_image(cropped, size)
 
             action = self._show_import_preview(
-                regions,
-                size,
-                confidence,
+                regions=regions,
+                size=size,
+                confidence=confidence,
                 source_label=Path(image_path).name,
             )
             if action == "manual":
@@ -241,7 +241,7 @@ class QueensUI:
     def _show_import_preview(self, regions: List[List[int]], size: int, confidence: float, source_label: str) -> str:
         preview = tk.Toplevel(self.root)
         preview.title("Queens Import Preview")
-        preview.geometry("700x780")
+        preview.geometry("760x840")
         preview.transient(self.root)
         preview.grab_set()
 
@@ -254,7 +254,7 @@ class QueensUI:
             text=(
                 f"Source: {source_label}\n"
                 f"Detected size: {size}x{size} (confidence {confidence:.2f})\n"
-                "Preview the colored regions below before importing."
+                "Click cells to cycle region colors before importing."
             ),
             justify="left",
             wraplength=660,
@@ -266,24 +266,43 @@ class QueensUI:
         canvas = tk.Canvas(container, width=canvas_px, height=canvas_px, bg="#ffffff", highlightthickness=0)
         canvas.pack(pady=(4, 12))
 
-        for r in range(size):
-            for c in range(size):
-                x0 = c * cell_px
-                y0 = r * cell_px
-                x1 = x0 + cell_px
-                y1 = y0 + cell_px
-                rid = regions[r][c]
-                fill = COLOR_PALETTE.get(rid, "#dddddd")
-                canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#2a2a2a", width=1)
-                canvas.create_text(
-                    (x0 + x1) / 2,
-                    (y0 + y1) / 2,
-                    text=str(rid),
-                    fill="#202020",
-                    font=("Helvetica", max(8, cell_px // 4), "bold"),
-                )
+        preview_regions = [row[:] for row in regions]
+        selected = {"row": None, "col": None}
 
-        canvas.create_rectangle(0, 0, canvas_px, canvas_px, outline="#111111", width=2)
+        def redraw():
+            canvas.delete("all")
+            for r in range(size):
+                for c in range(size):
+                    x0 = c * cell_px
+                    y0 = r * cell_px
+                    x1 = x0 + cell_px
+                    y1 = y0 + cell_px
+                    rid = preview_regions[r][c]
+                    fill = COLOR_PALETTE.get(rid, "#dddddd")
+                    canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#2a2a2a", width=1)
+                    canvas.create_text(
+                        (x0 + x1) / 2,
+                        (y0 + y1) / 2,
+                        text=str(rid),
+                        fill="#202020",
+                        font=("Helvetica", max(8, cell_px // 4), "bold"),
+                    )
+                    if selected["row"] == r and selected["col"] == c:
+                        canvas.create_rectangle(x0 + 2, y0 + 2, x1 - 2, y1 - 2, outline="#ffffff", width=3)
+
+            canvas.create_rectangle(0, 0, canvas_px, canvas_px, outline="#111111", width=2)
+
+        def on_click(event):
+            col = event.x // cell_px
+            row = event.y // cell_px
+            if 0 <= row < size and 0 <= col < size:
+                selected["row"] = row
+                selected["col"] = col
+                preview_regions[row][col] = (preview_regions[row][col] + 1) % size
+                redraw()
+
+        canvas.bind("<Button-1>", on_click)
+        redraw()
 
         result = {"value": "cancel"}
 
@@ -292,6 +311,10 @@ class QueensUI:
 
         def choose(value: str):
             result["value"] = value
+            if value == "use":
+                for r in range(size):
+                    for c in range(size):
+                        regions[r][c] = preview_regions[r][c]
             preview.destroy()
 
         ttk.Button(button_row, text="Use Detected", command=lambda: choose("use")).pack(side=tk.LEFT)
