@@ -211,12 +211,15 @@ class QueensUI:
             cropped = image.crop(bounds)
             size, confidence = self._estimate_grid_size(cropped)
 
-            use_detected = messagebox.askyesno(
-                "Detected Board Size",
-                f"Detected board size: {size}x{size} (confidence {confidence:.2f}).\nUse this size?",
-                parent=self.root,
+            regions = self._regions_from_image(cropped, size)
+
+            action = self._show_import_preview(
+                regions,
+                size,
+                confidence,
+                source_label=Path(image_path).name,
             )
-            if not use_detected:
+            if action == "manual":
                 manual_size = simpledialog.askinteger(
                     "Board Size",
                     "Enter board size N manually:",
@@ -226,12 +229,78 @@ class QueensUI:
                 if manual_size is None:
                     return
                 size = manual_size
+                regions = self._regions_from_image(cropped, size)
+            elif action != "use":
+                return
 
-            regions = self._regions_from_image(cropped, size)
             self._load_from_data({"regions": regions, "fixed_queens": [], "blocked": []}, source_label=Path(image_path).name)
             self.status.config(text=f"Imported regions from screenshot ({size}x{size}). Add X/Queens and solve.")
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc))
+
+    def _show_import_preview(self, regions: List[List[int]], size: int, confidence: float, source_label: str) -> str:
+        preview = tk.Toplevel(self.root)
+        preview.title("Queens Import Preview")
+        preview.geometry("700x780")
+        preview.transient(self.root)
+        preview.grab_set()
+
+        container = ttk.Frame(preview, padding=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(container, text="Detected Queens Puzzle", font=("Helvetica", 13, "bold")).pack(anchor="w")
+        ttk.Label(
+            container,
+            text=(
+                f"Source: {source_label}\n"
+                f"Detected size: {size}x{size} (confidence {confidence:.2f})\n"
+                "Preview the colored regions below before importing."
+            ),
+            justify="left",
+            wraplength=660,
+        ).pack(anchor="w", pady=(6, 10))
+
+        board_px = 560
+        cell_px = max(30, board_px // max(1, size))
+        canvas_px = cell_px * size
+        canvas = tk.Canvas(container, width=canvas_px, height=canvas_px, bg="#ffffff", highlightthickness=0)
+        canvas.pack(pady=(4, 12))
+
+        for r in range(size):
+            for c in range(size):
+                x0 = c * cell_px
+                y0 = r * cell_px
+                x1 = x0 + cell_px
+                y1 = y0 + cell_px
+                rid = regions[r][c]
+                fill = COLOR_PALETTE.get(rid, "#dddddd")
+                canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#2a2a2a", width=1)
+                canvas.create_text(
+                    (x0 + x1) / 2,
+                    (y0 + y1) / 2,
+                    text=str(rid),
+                    fill="#202020",
+                    font=("Helvetica", max(8, cell_px // 4), "bold"),
+                )
+
+        canvas.create_rectangle(0, 0, canvas_px, canvas_px, outline="#111111", width=2)
+
+        result = {"value": "cancel"}
+
+        button_row = ttk.Frame(container)
+        button_row.pack(fill=tk.X, pady=(4, 0))
+
+        def choose(value: str):
+            result["value"] = value
+            preview.destroy()
+
+        ttk.Button(button_row, text="Use Detected", command=lambda: choose("use")).pack(side=tk.LEFT)
+        ttk.Button(button_row, text="Enter Size Manually", command=lambda: choose("manual")).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(button_row, text="Cancel", command=lambda: choose("cancel")).pack(side=tk.LEFT, padx=(8, 0))
+
+        preview.protocol("WM_DELETE_WINDOW", lambda: choose("cancel"))
+        preview.wait_window()
+        return result["value"]
 
     def _find_content_bounds(self, image, threshold: int = 245) -> Tuple[int, int, int, int]:
         gray = image.convert("L")
