@@ -10,9 +10,10 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageTk
 except ImportError:  # pragma: no cover - runtime fallback
     Image = None
+    ImageTk = None
 
 from .solver import TangoPuzzleSolver
 
@@ -695,6 +696,7 @@ class TangoUI:
                 cols=cols,
                 confidence=confidence,
                 source_label=Path(image_path).name,
+                preview_image=cropped,
             )
 
             if action == "manual":
@@ -722,120 +724,26 @@ class TangoUI:
                     cols=cols,
                     confidence=confidence,
                     source_label=Path(image_path).name,
+                    preview_image=cropped,
                 )
 
             if action != "use":
                 return
-
-            def _show_import_preview(self, clues: List[List[int]], rows: int, cols: int, confidence: float, source_label: str) -> str:
-                preview = tk.Toplevel(self.root)
-                preview.title("Tango Import Preview")
-                preview.geometry("720x820")
-                preview.transient(self.root)
-                preview.grab_set()
-
-                container = ttk.Frame(preview, padding=12)
-                container.pack(fill=tk.BOTH, expand=True)
-
-                ttk.Label(container, text="Detected Tango Puzzle", font=("Helvetica", 13, "bold")).pack(anchor="w")
-                ttk.Label(
-                    container,
-                    text=(
-                        f"Source: {source_label}\n"
-                        f"Detected size: {rows}x{cols} (confidence {confidence:.2f})\n"
-                        "Click any cell to cycle Empty -> Symbol 1 -> Symbol 2."
-                    ),
-                    justify="left",
-                    wraplength=680,
-                ).pack(anchor="w", pady=(6, 10))
-
-                cell_px = max(26, min(64, 560 // max(rows, cols)))
-                canvas_w = cell_px * cols
-                canvas_h = cell_px * rows
-                canvas = tk.Canvas(container, width=canvas_w, height=canvas_h, bg="#ffffff", highlightthickness=0)
-                canvas.pack(pady=(4, 12))
-
-                preview_clues = [row[:] for row in clues]
-
-                def redraw():
-                    canvas.delete("all")
-                    for r in range(rows):
-                        for c in range(cols):
-                            x0 = c * cell_px
-                            y0 = r * cell_px
-                            x1 = x0 + cell_px
-                            y1 = y0 + cell_px
-                            fill = self._default_checker_color(r, c)
-                            canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#cfc8bf", width=1)
-
-                            value = preview_clues[r][c]
-                            if value == 1:
-                                pad = int(cell_px * 0.22)
-                                canvas.create_oval(
-                                    x0 + pad,
-                                    y0 + pad,
-                                    x1 - pad,
-                                    y1 - pad,
-                                    fill="#fbb71f",
-                                    outline="#cc6f2b",
-                                    width=2,
-                                )
-                            elif value == 2:
-                                pad = int(cell_px * 0.20)
-                                canvas.create_oval(
-                                    x0 + pad,
-                                    y0 + pad,
-                                    x1 - pad,
-                                    y1 - pad,
-                                    fill="#4d87d8",
-                                    outline="#225eaf",
-                                    width=2,
-                                )
-                                canvas.create_oval(
-                                    x0 + int(cell_px * 0.46),
-                                    y0 + int(cell_px * 0.16),
-                                    x1 - int(cell_px * 0.12),
-                                    y1 - int(cell_px * 0.30),
-                                    fill=fill,
-                                    outline=fill,
-                                    width=0,
-                                )
-
-                    canvas.create_rectangle(0, 0, canvas_w, canvas_h, outline="#111111", width=2)
-
-                def on_click(event):
-                    col = event.x // cell_px
-                    row = event.y // cell_px
-                    if 0 <= row < rows and 0 <= col < cols:
-                        preview_clues[row][col] = (preview_clues[row][col] + 1) % 3
-                        redraw()
-
-                canvas.bind("<Button-1>", on_click)
-                redraw()
-
-                result = {"value": "cancel"}
-
-                button_row = ttk.Frame(container)
-                button_row.pack(fill=tk.X, pady=(4, 0))
-
-                def choose(value: str):
-                    result["value"] = value
-                    preview.destroy()
-
-                ttk.Button(button_row, text="Use Detected", command=lambda: choose("use")).pack(side=tk.LEFT)
-                ttk.Button(button_row, text="Enter Size Manually", command=lambda: choose("manual")).pack(side=tk.LEFT, padx=(8, 0))
-                ttk.Button(button_row, text="Cancel", command=lambda: choose("cancel")).pack(side=tk.LEFT, padx=(8, 0))
-
-                preview.protocol("WM_DELETE_WINDOW", lambda: choose("cancel"))
-                preview.wait_window()
-                return result["value"]
 
             self._load_from_data({"rows": rows, "cols": cols, "clues": clues}, source_label=Path(image_path).name)
             self.status.config(text=f"Imported clues from screenshot ({rows}x{cols}).")
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc), parent=self.root)
 
-    def _show_import_preview(self, clues: List[List[int]], rows: int, cols: int, confidence: float, source_label: str) -> str:
+    def _show_import_preview(
+        self,
+        clues: List[List[int]],
+        rows: int,
+        cols: int,
+        confidence: float,
+        source_label: str,
+        preview_image=None,
+    ) -> str:
         preview = tk.Toplevel(self.root)
         preview.title("Tango Import Preview")
         preview.geometry("720x820")
@@ -851,11 +759,24 @@ class TangoUI:
             text=(
                 f"Source: {source_label}\n"
                 f"Detected size: {rows}x{cols} (confidence {confidence:.2f})\n"
-                "Preview the detected symbols before importing."
+                "Click any cell to cycle Empty -> Symbol 1 -> Symbol 2."
             ),
             justify="left",
             wraplength=680,
         ).pack(anchor="w", pady=(6, 10))
+
+        if ImageTk is not None and preview_image is not None:
+            max_w = 560
+            max_h = 180
+            pw, ph = preview_image.size
+            scale = min(max_w / max(1, pw), max_h / max(1, ph), 1.0)
+            sw = max(1, int(pw * scale))
+            sh = max(1, int(ph * scale))
+            resized = preview_image.resize((sw, sh))
+            preview_photo = ImageTk.PhotoImage(resized)
+            setattr(preview, "_img_ref", preview_photo)
+            ttk.Label(container, text="Detected Board Crop").pack(anchor="w")
+            ttk.Label(container, image=preview_photo).pack(anchor="w", pady=(2, 8))
 
         cell_px = max(26, min(64, 560 // max(rows, cols)))
         canvas_w = cell_px * cols
@@ -863,49 +784,63 @@ class TangoUI:
         canvas = tk.Canvas(container, width=canvas_w, height=canvas_h, bg="#ffffff", highlightthickness=0)
         canvas.pack(pady=(4, 12))
 
-        for r in range(rows):
-            for c in range(cols):
-                x0 = c * cell_px
-                y0 = r * cell_px
-                x1 = x0 + cell_px
-                y1 = y0 + cell_px
-                fill = self._default_checker_color(r, c)
-                canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#cfc8bf", width=1)
+        preview_clues = [row[:] for row in clues]
 
-                value = clues[r][c]
-                if value == 1:
-                    pad = int(cell_px * 0.22)
-                    canvas.create_oval(
-                        x0 + pad,
-                        y0 + pad,
-                        x1 - pad,
-                        y1 - pad,
-                        fill="#fbb71f",
-                        outline="#cc6f2b",
-                        width=2,
-                    )
-                elif value == 2:
-                    pad = int(cell_px * 0.20)
-                    canvas.create_oval(
-                        x0 + pad,
-                        y0 + pad,
-                        x1 - pad,
-                        y1 - pad,
-                        fill="#4d87d8",
-                        outline="#225eaf",
-                        width=2,
-                    )
-                    canvas.create_oval(
-                        x0 + int(cell_px * 0.46),
-                        y0 + int(cell_px * 0.16),
-                        x1 - int(cell_px * 0.12),
-                        y1 - int(cell_px * 0.30),
-                        fill=fill,
-                        outline=fill,
-                        width=0,
-                    )
+        def redraw():
+            canvas.delete("all")
+            for r in range(rows):
+                for c in range(cols):
+                    x0 = c * cell_px
+                    y0 = r * cell_px
+                    x1 = x0 + cell_px
+                    y1 = y0 + cell_px
+                    fill = self._default_checker_color(r, c)
+                    canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#cfc8bf", width=1)
 
-        canvas.create_rectangle(0, 0, canvas_w, canvas_h, outline="#111111", width=2)
+                    value = preview_clues[r][c]
+                    if value == 1:
+                        pad = int(cell_px * 0.22)
+                        canvas.create_oval(
+                            x0 + pad,
+                            y0 + pad,
+                            x1 - pad,
+                            y1 - pad,
+                            fill="#fbb71f",
+                            outline="#cc6f2b",
+                            width=2,
+                        )
+                    elif value == 2:
+                        pad = int(cell_px * 0.20)
+                        canvas.create_oval(
+                            x0 + pad,
+                            y0 + pad,
+                            x1 - pad,
+                            y1 - pad,
+                            fill="#4d87d8",
+                            outline="#225eaf",
+                            width=2,
+                        )
+                        canvas.create_oval(
+                            x0 + int(cell_px * 0.46),
+                            y0 + int(cell_px * 0.16),
+                            x1 - int(cell_px * 0.12),
+                            y1 - int(cell_px * 0.30),
+                            fill=fill,
+                            outline=fill,
+                            width=0,
+                        )
+
+            canvas.create_rectangle(0, 0, canvas_w, canvas_h, outline="#111111", width=2)
+
+        def on_click(event):
+            col = event.x // cell_px
+            row = event.y // cell_px
+            if 0 <= row < rows and 0 <= col < cols:
+                preview_clues[row][col] = (preview_clues[row][col] + 1) % 3
+                redraw()
+
+        canvas.bind("<Button-1>", on_click)
+        redraw()
 
         result = {"value": "cancel"}
 
@@ -914,6 +849,10 @@ class TangoUI:
 
         def choose(value: str):
             result["value"] = value
+            if value == "use":
+                for r in range(rows):
+                    for c in range(cols):
+                        clues[r][c] = preview_clues[r][c]
             preview.destroy()
 
         ttk.Button(button_row, text="Use Detected", command=lambda: choose("use")).pack(side=tk.LEFT)

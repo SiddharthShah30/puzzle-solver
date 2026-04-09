@@ -10,9 +10,10 @@ import tkinter as tk
 from tkinter import ttk, messagebox, filedialog, simpledialog
 
 try:
-    from PIL import Image
+    from PIL import Image, ImageTk
 except ImportError:  # pragma: no cover - runtime fallback
     Image = None
+    ImageTk = None
 
 from .solver import QueensPuzzleSolver
 
@@ -218,6 +219,7 @@ class QueensUI:
                 size=size,
                 confidence=confidence,
                 source_label=Path(image_path).name,
+                preview_image=cropped,
             )
             if action == "manual":
                 manual_size = simpledialog.askinteger(
@@ -230,6 +232,13 @@ class QueensUI:
                     return
                 size = manual_size
                 regions = self._regions_from_image(cropped, size)
+                action = self._show_import_preview(
+                    regions=regions,
+                    size=size,
+                    confidence=confidence,
+                    source_label=Path(image_path).name,
+                    preview_image=cropped,
+                )
             elif action != "use":
                 return
 
@@ -238,7 +247,14 @@ class QueensUI:
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc))
 
-    def _show_import_preview(self, regions: List[List[int]], size: int, confidence: float, source_label: str) -> str:
+    def _show_import_preview(
+        self,
+        regions: List[List[int]],
+        size: int,
+        confidence: float,
+        source_label: str,
+        preview_image=None,
+    ) -> str:
         preview = tk.Toplevel(self.root)
         preview.title("Queens Import Preview")
         preview.geometry("760x840")
@@ -259,6 +275,19 @@ class QueensUI:
             justify="left",
             wraplength=660,
         ).pack(anchor="w", pady=(6, 10))
+
+        if ImageTk is not None and preview_image is not None:
+            max_w = 560
+            max_h = 180
+            pw, ph = preview_image.size
+            scale = min(max_w / max(1, pw), max_h / max(1, ph), 1.0)
+            sw = max(1, int(pw * scale))
+            sh = max(1, int(ph * scale))
+            resized = preview_image.resize((sw, sh))
+            preview_photo = ImageTk.PhotoImage(resized)
+            setattr(preview, "_img_ref", preview_photo)
+            ttk.Label(container, text="Detected Board Crop").pack(anchor="w")
+            ttk.Label(container, image=preview_photo).pack(anchor="w", pady=(2, 8))
 
         board_px = 560
         cell_px = max(30, board_px // max(1, size))
