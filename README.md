@@ -7,8 +7,8 @@ Advanced Sudoku solver with keyboard navigation, no minimum clue requirements, a
 ### 🌗 Tango Solver
 - **Binary Rules Enforced**: Fill each cell with Symbol 1 or Symbol 2
 - **Adjacency Constraint**: No three equal symbols adjacent horizontally or vertically
-- **Balance Constraint**: Every row and column has equal counts of both symbols
-- **Rectangular Boards**: Supports even-sized grids like `4x6`, `6x8`, and `16x6`
+- **Balance Constraint**: Every row and column stays as balanced as possible
+- **Rectangular Boards**: Supports boards like `3x3`, `4x6`, `6x8`, and `16x6`
 - **Unique-Solution Check**: Solver rejects puzzles with multiple solutions
 - **Screenshot Import**: Auto-crops the board, detects dimensions, and extracts symbols from screenshots
 - **Interactive Board**: Click cycle is `Empty -> Symbol 1 -> Symbol 2 -> Empty`

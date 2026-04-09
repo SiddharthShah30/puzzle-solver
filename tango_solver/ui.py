@@ -44,7 +44,7 @@ class TangoUI:
             outer,
             text=(
                 "Rules: Fill each cell with Symbol 1 or Symbol 2. No 3 equal adjacent in a row/column. "
-                "Each row/column must contain exactly half Symbol 1 and half Symbol 2."
+                "Each row/column must stay as balanced as possible."
             ),
             wraplength=840,
         ).pack(anchor="w", pady=(4, 10))
@@ -181,7 +181,7 @@ class TangoUI:
         ttk.Label(container, text="Create Custom Tango Puzzle", font=("Helvetica", 12, "bold")).pack(anchor="w")
         ttk.Label(
             container,
-            text="Board dimensions must both be even (for example 4x4, 4x6, 6x8). Enter clues with 0=empty, 1=symbol1, 2=symbol2.",
+            text="Enter any rectangular board size. 0=empty, 1=symbol1, 2=symbol2.",
             wraplength=610,
         ).pack(anchor="w", pady=(6, 8))
 
@@ -209,8 +209,8 @@ class TangoUI:
             try:
                 rows = int(rows_var.get())
                 cols = int(cols_var.get())
-                if rows < 2 or cols < 2 or rows % 2 != 0 or cols % 2 != 0:
-                    raise ValueError("Board dimensions must both be even numbers")
+                if rows < 2 or cols < 2:
+                    raise ValueError("Board dimensions must be at least 2x2")
                 clues = self._parse_grid_text(clue_text.get("1.0", tk.END), rows, cols)
                 self._load_from_data({"rows": rows, "cols": cols, "clues": clues}, source_label="custom setup")
                 setup.destroy()
@@ -688,9 +688,6 @@ class TangoUI:
             cropped = image.crop(bounds)
             rows, cols, inner_bounds, confidence = self._estimate_board_shape(cropped)
 
-            if rows % 2 != 0 or cols % 2 != 0:
-                raise ValueError("Board dimensions must both be even for Tango")
-
             use_detected = messagebox.askyesno(
                 "Detected Tango Puzzle",
                 f"Detected a {rows}x{cols} board with symbol clues (confidence {confidence:.2f}). Use this detection?",
@@ -712,8 +709,8 @@ class TangoUI:
                 if manual_rows is None or manual_cols is None:
                     return
                 rows, cols = manual_rows, manual_cols
-                if rows % 2 != 0 or cols % 2 != 0:
-                    raise ValueError("Board dimensions must both be even for Tango")
+                if rows < 2 or cols < 2:
+                    raise ValueError("Board dimensions must be at least 2x2")
 
             clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
 
@@ -769,8 +766,8 @@ class TangoUI:
                 rows = len(clues)
                 cols = len(clues[0]) if clues else 0
 
-        if rows % 2 != 0 or cols % 2 != 0:
-            raise ValueError("Board dimensions must both be even for Tango")
+        if rows < 2 or cols < 2:
+            raise ValueError("Board dimensions must be at least 2x2")
         if len(clues) != rows or any(len(row) != cols for row in clues):
             raise ValueError("Clues grid must match the declared rows and columns")
 

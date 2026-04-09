@@ -3,7 +3,7 @@
 Rules:
 - Every cell is either symbol 1 or symbol 2.
 - No more than two equal symbols may be adjacent horizontally or vertically.
-- Each row and each column must contain the same number of symbol 1 and symbol 2.
+- Each row and each column should stay as balanced as possible.
 """
 
 from __future__ import annotations
@@ -20,8 +20,6 @@ class TangoPuzzleSolver:
 
         if self.rows == 0 or self.cols == 0 or any(len(row) != self.cols for row in clues):
             raise ValueError("Clues must be a non-empty rectangular grid")
-        if self.rows % 2 != 0 or self.cols % 2 != 0:
-            raise ValueError("Tango board dimensions must both be even")
 
         valid_values = {0, 1, 2}
         for row in clues:
@@ -33,6 +31,16 @@ class TangoPuzzleSolver:
         self.solution_count = 0
         self.solve_time = 0.0
         self.moves = 0
+
+    def _line_targets(self, length: int) -> Tuple[int, int]:
+        """Return the max and exact target counts for a line of this length.
+
+        For even lengths, both symbols must appear equally often.
+        For odd lengths, one symbol may appear one extra time.
+        """
+        lower = length // 2
+        upper = (length + 1) // 2
+        return lower, upper
 
     def solve(self, verify_unique: bool = False) -> bool:
         start = time.time()
@@ -83,10 +91,10 @@ class TangoPuzzleSolver:
         return True
 
     def _line_valid(self, line: List[int]) -> bool:
-        half = len(line) // 2
+        lower, upper = self._line_targets(len(line))
         count1 = sum(1 for v in line if v == 1)
         count2 = sum(1 for v in line if v == 2)
-        if count1 > half or count2 > half:
+        if count1 > upper or count2 > upper:
             return False
 
         for i in range(len(line) - 2):
@@ -94,7 +102,10 @@ class TangoPuzzleSolver:
             if a != 0 and a == b == c:
                 return False
 
-        if 0 not in line and (count1 != half or count2 != half):
+        if 0 not in line and (count1 < lower or count1 > upper or count2 < lower or count2 > upper):
+            return False
+
+        if 0 not in line and abs(count1 - count2) > 1:
             return False
 
         return True
@@ -102,20 +113,20 @@ class TangoPuzzleSolver:
     def _apply_line_rules(self, line: List[int]) -> Tuple[bool, bool]:
         changed = False
         line_len = len(line)
-        half = line_len // 2
+        lower, upper = self._line_targets(line_len)
 
         count1 = sum(1 for v in line if v == 1)
         count2 = sum(1 for v in line if v == 2)
 
-        if count1 > half or count2 > half:
+        if count1 > upper or count2 > upper:
             return False, changed
 
-        if count1 == half:
+        if count1 == upper:
             for i in range(line_len):
                 if line[i] == 0:
                     line[i] = 2
                     changed = True
-        elif count2 == half:
+        elif count2 == upper:
             for i in range(line_len):
                 if line[i] == 0:
                     line[i] = 1
@@ -136,6 +147,9 @@ class TangoPuzzleSolver:
 
             if line[i] != 0 and line[i] == line[i + 1] == line[i + 2]:
                 return False, changed
+
+        if 0 not in line and abs(count1 - count2) > 1:
+            return False, changed
 
         if not self._line_valid(line):
             return False, changed
