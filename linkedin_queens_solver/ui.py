@@ -206,40 +206,47 @@ class QueensUI:
 
         try:
             image = Image.open(image_path).convert("RGB")
-            size, confidence = self._estimate_grid_size(image)
 
-            if confidence < 1.08:
+            bounds = self._find_content_bounds(image)
+            cropped = image.crop(bounds)
+            size, confidence = self._estimate_grid_size(cropped)
+
+            use_detected = messagebox.askyesno(
+                "Detected Board Size",
+                f"Detected board size: {size}x{size} (confidence {confidence:.2f}).\nUse this size?",
+                parent=self.root,
+            )
+            if not use_detected:
                 manual_size = simpledialog.askinteger(
                     "Board Size",
-                    "Could not confidently detect board size. Enter N manually:",
+                    "Enter board size N manually:",
                     minvalue=1,
                     parent=self.root,
                 )
                 if manual_size is None:
                     return
                 size = manual_size
-            else:
-                use_detected = messagebox.askyesno(
-                    "Detected Board Size",
-                    f"Detected board size: {size}x{size} (confidence {confidence:.2f}).\nUse this size?",
-                    parent=self.root,
-                )
-                if not use_detected:
-                    manual_size = simpledialog.askinteger(
-                        "Board Size",
-                        "Enter board size N manually:",
-                        minvalue=1,
-                        parent=self.root,
-                    )
-                    if manual_size is None:
-                        return
-                    size = manual_size
 
-            regions = self._regions_from_image(image, size)
+            regions = self._regions_from_image(cropped, size)
             self._load_from_data({"regions": regions, "fixed_queens": [], "blocked": []}, source_label=Path(image_path).name)
             self.status.config(text=f"Imported regions from screenshot ({size}x{size}). Add X/Queens and solve.")
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc))
+
+    def _find_content_bounds(self, image, threshold: int = 245) -> Tuple[int, int, int, int]:
+        gray = image.convert("L")
+        mask = gray.point(lambda p: 255 if p < threshold else 0)
+        bbox = mask.getbbox()
+        if bbox is None:
+            return (0, 0, image.size[0], image.size[1])
+
+        left, top, right, bottom = bbox
+        pad = max(4, int(min(image.size) * 0.015))
+        left = max(0, left - pad)
+        top = max(0, top - pad)
+        right = min(image.size[0], right + pad)
+        bottom = min(image.size[1], bottom + pad)
+        return left, top, right, bottom
 
     def _estimate_grid_size(self, image, min_size: int = 4, max_size: int = 14) -> Tuple[int, float]:
         """Estimate board size by matching candidate grid lines to edge profiles.

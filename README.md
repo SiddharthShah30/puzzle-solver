@@ -10,14 +10,14 @@ Advanced Sudoku solver with keyboard navigation, no minimum clue requirements, a
 - **Balance Constraint**: Every row and column has equal counts of both symbols
 - **Rectangular Boards**: Supports even-sized grids like `4x6`, `6x8`, and `16x6`
 - **Unique-Solution Check**: Solver rejects puzzles with multiple solutions
-- **Screenshot Import**: Load a Tango screenshot and auto-detect board dimensions + symbols
+- **Screenshot Import**: Auto-crops the board, detects dimensions, and extracts symbols from screenshots
 - **Interactive Board**: Click cycle is `Empty -> Symbol 1 -> Symbol 2 -> Empty`
 
 ### 👑 LinkedIn Queens Solver
 - **Exact LinkedIn Rules**: One queen per row, column, and color region
 - **No-Touch Constraint**: Queens cannot touch, including diagonals
 - **Tap Cycle Input**: Click cycle is `Empty -> X -> Queen -> Empty`
-- **Screenshot Import**: Load a screenshot and auto-detect board size + extract region map by color
+- **Screenshot Import**: Auto-crops the board, detects size, and extracts the region map by color
 - **Interactive Board**: Region-colored board with sample puzzle support
 - **Custom Puzzle JSON**: Load your own `regions`, fixed queens, and blocked cells
 

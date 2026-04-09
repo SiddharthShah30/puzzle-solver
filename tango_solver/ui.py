@@ -509,8 +509,8 @@ class TangoUI:
                 x1 = max(x0 + 1, min(image.size[0], x1))
                 y1 = max(y0 + 1, min(image.size[1], y1))
 
-                margin_x = max(2, int((x1 - x0) * 0.12))
-                margin_y = max(2, int((y1 - y0) * 0.12))
+                margin_x = max(3, int((x1 - x0) * 0.18))
+                margin_y = max(3, int((y1 - y0) * 0.18))
                 sample_x0 = x0 + margin_x
                 sample_y0 = y0 + margin_y
                 sample_x1 = x1 - margin_x
@@ -518,11 +518,13 @@ class TangoUI:
                 if sample_x1 <= sample_x0 or sample_y1 <= sample_y0:
                     sample_x0, sample_y0, sample_x1, sample_y1 = x0, y0, x1, y1
 
+                inset_x = max(3, int((x1 - x0) * 0.24))
+                inset_y = max(3, int((y1 - y0) * 0.24))
                 corner_points = [
-                    image.getpixel((min(image.size[0] - 1, x0 + 1), min(image.size[1] - 1, y0 + 1))),
-                    image.getpixel((max(0, x1 - 2), min(image.size[1] - 1, y0 + 1))),
-                    image.getpixel((min(image.size[0] - 1, x0 + 1), max(0, y1 - 2))),
-                    image.getpixel((max(0, x1 - 2), max(0, y1 - 2))),
+                    image.getpixel((min(image.size[0] - 1, x0 + inset_x), min(image.size[1] - 1, y0 + inset_y))),
+                    image.getpixel((max(0, x1 - inset_x - 1), min(image.size[1] - 1, y0 + inset_y))),
+                    image.getpixel((min(image.size[0] - 1, x0 + inset_x), max(0, y1 - inset_y - 1))),
+                    image.getpixel((max(0, x1 - inset_x - 1), max(0, y1 - inset_y - 1))),
                 ]
                 bg = tuple(sum(point[idx] for point in corner_points) / len(corner_points) for idx in range(3))
 
@@ -540,7 +542,7 @@ class TangoUI:
                             fg_pixels.append((x, y, r_, g_, b_))
 
                 fg_fraction = len(fg_pixels) / max(1, total_pixels)
-                if fg_fraction < 0.02:
+                if fg_fraction < 0.02 or fg_fraction > 0.55:
                     features.append({"occupied": False, "feature": None})
                     continue
 
@@ -598,15 +600,37 @@ class TangoUI:
         return labels
 
     def _extract_clues_from_image(self, image, rows: int, cols: int, bounds: Tuple[int, int, int, int]) -> List[List[int]]:
-        features = self._detect_symbol_features(image, bounds, rows, cols)
-        labels = self._cluster_binary_features(features)
-
         clues = [[0 for _ in range(cols)] for _ in range(rows)]
-        idx = 0
+        detected = 0
+        left, top, right, bottom = bounds
+        board_w = max(1, right - left)
+        board_h = max(1, bottom - top)
+        cell_w = board_w / cols
+        cell_h = board_h / rows
+
         for r in range(rows):
             for c in range(cols):
-                clues[r][c] = labels[idx]
-                idx += 1
+                x0 = int(left + c * cell_w)
+                y0 = int(top + r * cell_h)
+                x1 = int(left + (c + 1) * cell_w)
+                y1 = int(top + (r + 1) * cell_h)
+                x0 = max(0, min(image.size[0] - 1, x0))
+                y0 = max(0, min(image.size[1] - 1, y0))
+                x1 = max(x0 + 1, min(image.size[0], x1))
+                y1 = max(y0 + 1, min(image.size[1], y1))
+                clues[r][c] = self._classify_symbol_cell(image, x0, y0, x1, y1)
+                if clues[r][c] != 0:
+                    detected += 1
+
+        if detected == 0:
+            features = self._detect_symbol_features(image, bounds, rows, cols)
+            labels = self._cluster_binary_features(features)
+            idx = 0
+            for r in range(rows):
+                for c in range(cols):
+                    clues[r][c] = labels[idx]
+                    idx += 1
+
         return clues
 
     def _classify_symbol_cell(self, image, x0: int, y0: int, x1: int, y1: int) -> int:
@@ -660,12 +684,22 @@ class TangoUI:
 
         try:
             image = Image.open(image_path).convert("RGB")
-            rows, cols, bounds, confidence = self._estimate_board_shape(image)
+            bounds = self._find_content_bounds(image)
+            cropped = image.crop(bounds)
+            rows, cols, inner_bounds, confidence = self._estimate_board_shape(cropped)
 
-            if confidence < 1.05:
+            if rows % 2 != 0 or cols % 2 != 0:
+                raise ValueError("Board dimensions must both be even for Tango")
+
+            use_detected = messagebox.askyesno(
+                "Detected Tango Puzzle",
+                f"Detected a {rows}x{cols} board with symbol clues (confidence {confidence:.2f}). Use this detection?",
+                parent=self.root,
+            )
+            if not use_detected:
                 manual_rows = simpledialog.askinteger(
                     "Board Rows",
-                    "Could not confidently detect the board. Enter row count manually:",
+                    "Enter row count manually:",
                     minvalue=2,
                     parent=self.root,
                 )
@@ -678,23 +712,30 @@ class TangoUI:
                 if manual_rows is None or manual_cols is None:
                     return
                 rows, cols = manual_rows, manual_cols
+                if rows % 2 != 0 or cols % 2 != 0:
+                    raise ValueError("Board dimensions must both be even for Tango")
 
-            if rows % 2 != 0 or cols % 2 != 0:
-                raise ValueError("Board dimensions must both be even for Tango")
-
-            clues = self._extract_clues_from_image(image, rows, cols, bounds)
-            use_detected = messagebox.askyesno(
-                "Detected Tango Puzzle",
-                f"Detected a {rows}x{cols} board with symbol clues. Use this detection?",
-                parent=self.root,
-            )
-            if not use_detected:
-                return
+            clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
 
             self._load_from_data({"rows": rows, "cols": cols, "clues": clues}, source_label=Path(image_path).name)
             self.status.config(text=f"Imported clues from screenshot ({rows}x{cols}).")
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc), parent=self.root)
+
+    def _find_content_bounds(self, image, threshold: int = 245) -> Tuple[int, int, int, int]:
+        gray = image.convert("L")
+        mask = gray.point(lambda p: 255 if p < threshold else 0)
+        bbox = mask.getbbox()
+        if bbox is None:
+            return (0, 0, image.size[0], image.size[1])
+
+        left, top, right, bottom = bbox
+        pad = max(4, int(min(image.size) * 0.015))
+        left = max(0, left - pad)
+        top = max(0, top - pad)
+        right = min(image.size[0], right + pad)
+        bottom = min(image.size[1], bottom + pad)
+        return left, top, right, bottom
 
     def on_canvas_click(self, event):
         if self.rows == 0 or self.cols == 0:
