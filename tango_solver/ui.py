@@ -1,4 +1,4 @@
-"""Tkinter UI for Tango puzzle."""
+﻿"""Tkinter UI for Tango puzzle."""
 
 from __future__ import annotations
 
@@ -688,12 +688,16 @@ class TangoUI:
             cropped = image.crop(bounds)
             rows, cols, inner_bounds, confidence = self._estimate_board_shape(cropped)
 
-            use_detected = messagebox.askyesno(
-                "Detected Tango Puzzle",
-                f"Detected a {rows}x{cols} board with symbol clues (confidence {confidence:.2f}). Use this detection?",
-                parent=self.root,
+            clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
+            action = self._show_import_preview(
+                clues=clues,
+                rows=rows,
+                cols=cols,
+                confidence=confidence,
+                source_label=Path(image_path).name,
             )
-            if not use_detected:
+
+            if action == "manual":
                 manual_rows = simpledialog.askinteger(
                     "Board Rows",
                     "Enter row count manually:",
@@ -708,16 +712,114 @@ class TangoUI:
                 )
                 if manual_rows is None or manual_cols is None:
                     return
-                rows, cols = manual_rows, manual_cols
-                if rows < 2 or cols < 2:
+                if manual_rows < 2 or manual_cols < 2:
                     raise ValueError("Board dimensions must be at least 2x2")
+                rows, cols = manual_rows, manual_cols
+                clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
+                action = self._show_import_preview(
+                    clues=clues,
+                    rows=rows,
+                    cols=cols,
+                    confidence=confidence,
+                    source_label=Path(image_path).name,
+                )
 
-            clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
+            if action != "use":
+                return
 
             self._load_from_data({"rows": rows, "cols": cols, "clues": clues}, source_label=Path(image_path).name)
             self.status.config(text=f"Imported clues from screenshot ({rows}x{cols}).")
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc), parent=self.root)
+
+    def _show_import_preview(self, clues: List[List[int]], rows: int, cols: int, confidence: float, source_label: str) -> str:
+        preview = tk.Toplevel(self.root)
+        preview.title("Tango Import Preview")
+        preview.geometry("720x820")
+        preview.transient(self.root)
+        preview.grab_set()
+
+        container = ttk.Frame(preview, padding=12)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        ttk.Label(container, text="Detected Tango Puzzle", font=("Helvetica", 13, "bold")).pack(anchor="w")
+        ttk.Label(
+            container,
+            text=(
+                f"Source: {source_label}\n"
+                f"Detected size: {rows}x{cols} (confidence {confidence:.2f})\n"
+                "Preview the detected symbols before importing."
+            ),
+            justify="left",
+            wraplength=680,
+        ).pack(anchor="w", pady=(6, 10))
+
+        cell_px = max(26, min(64, 560 // max(rows, cols)))
+        canvas_w = cell_px * cols
+        canvas_h = cell_px * rows
+        canvas = tk.Canvas(container, width=canvas_w, height=canvas_h, bg="#ffffff", highlightthickness=0)
+        canvas.pack(pady=(4, 12))
+
+        for r in range(rows):
+            for c in range(cols):
+                x0 = c * cell_px
+                y0 = r * cell_px
+                x1 = x0 + cell_px
+                y1 = y0 + cell_px
+                fill = self._default_checker_color(r, c)
+                canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#cfc8bf", width=1)
+
+                value = clues[r][c]
+                if value == 1:
+                    pad = int(cell_px * 0.22)
+                    canvas.create_oval(
+                        x0 + pad,
+                        y0 + pad,
+                        x1 - pad,
+                        y1 - pad,
+                        fill="#fbb71f",
+                        outline="#cc6f2b",
+                        width=2,
+                    )
+                elif value == 2:
+                    pad = int(cell_px * 0.20)
+                    canvas.create_oval(
+                        x0 + pad,
+                        y0 + pad,
+                        x1 - pad,
+                        y1 - pad,
+                        fill="#4d87d8",
+                        outline="#225eaf",
+                        width=2,
+                    )
+                    canvas.create_oval(
+                        x0 + int(cell_px * 0.46),
+                        y0 + int(cell_px * 0.16),
+                        x1 - int(cell_px * 0.12),
+                        y1 - int(cell_px * 0.30),
+                        fill=fill,
+                        outline=fill,
+                        width=0,
+                    )
+
+        canvas.create_rectangle(0, 0, canvas_w, canvas_h, outline="#111111", width=2)
+
+        result = {"value": "cancel"}
+
+        button_row = ttk.Frame(container)
+        button_row.pack(fill=tk.X, pady=(4, 0))
+
+        def choose(value: str):
+            result["value"] = value
+            preview.destroy()
+
+        ttk.Button(button_row, text="Use Detected", command=lambda: choose("use")).pack(side=tk.LEFT)
+        ttk.Button(button_row, text="Enter Size Manually", command=lambda: choose("manual")).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(button_row, text="Cancel", command=lambda: choose("cancel")).pack(side=tk.LEFT, padx=(8, 0))
+
+        preview.protocol("WM_DELETE_WINDOW", lambda: choose("cancel"))
+        preview.wait_window()
+        return result["value"]
 
     def _find_content_bounds(self, image, threshold: int = 245) -> Tuple[int, int, int, int]:
         gray = image.convert("L")
