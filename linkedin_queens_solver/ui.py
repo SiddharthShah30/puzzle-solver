@@ -303,8 +303,8 @@ class QueensUI:
             text=(
                 f"Source: {source_label}\n"
                 f"Detected size: {size}x{size} (confidence {confidence:.2f})\n"
-                "Click a cell to select it. Enter a region id (0-19) and apply.\n"
-                "You can still click a selected cell to cycle quickly."
+                "Click to select cells. Use Shift+Click or Shift+Arrow to extend selection.\n"
+                "Enter a region id (0-19) and apply to change the whole selection in one go."
             ),
             justify="left",
             wraplength=660,
@@ -330,7 +330,9 @@ class QueensUI:
         canvas.pack(pady=(4, 12))
 
         preview_regions = [row[:] for row in regions]
-        selected = {"row": None, "col": None}
+        cursor = {"row": 0, "col": 0}
+        selection_anchor = {"row": 0, "col": 0}
+        selected_cells = {(0, 0)}
 
         editor_row = ttk.Frame(container)
         editor_row.pack(fill=tk.X, pady=(0, 8))
@@ -338,7 +340,7 @@ class QueensUI:
         region_id_var = tk.StringVar(value="0")
         region_id_entry = ttk.Entry(editor_row, textvariable=region_id_var, width=6)
         region_id_entry.pack(side=tk.LEFT, padx=(6, 8))
-        selected_label = ttk.Label(editor_row, text="Selected: none")
+        selected_label = ttk.Label(editor_row, text="Selected: 1 cell")
         selected_label.pack(side=tk.LEFT)
 
         legend = tk.Canvas(container, width=canvas_px, height=86, bg="#ffffff", highlightthickness=0)
@@ -378,13 +380,46 @@ class QueensUI:
                         fill="#202020",
                         font=("Helvetica", max(8, cell_px // 4), "bold"),
                     )
-                    if selected["row"] == r and selected["col"] == c:
+                    if (r, c) in selected_cells:
                         canvas.create_rectangle(x0 + 2, y0 + 2, x1 - 2, y1 - 2, outline="#ffffff", width=3)
+                    if cursor["row"] == r and cursor["col"] == c:
+                        canvas.create_rectangle(x0 + 5, y0 + 5, x1 - 5, y1 - 5, outline="#111111", width=2)
 
             canvas.create_rectangle(0, 0, canvas_px, canvas_px, outline="#111111", width=2)
 
+        def set_selection(target_row: int, target_col: int, extend: bool):
+            target_row = max(0, min(size - 1, target_row))
+            target_col = max(0, min(size - 1, target_col))
+
+            old_row = cursor["row"]
+            old_col = cursor["col"]
+            cursor["row"] = target_row
+            cursor["col"] = target_col
+
+            if extend:
+                arow = selection_anchor["row"]
+                acol = selection_anchor["col"]
+                r0 = min(arow, target_row)
+                r1 = max(arow, target_row)
+                c0 = min(acol, target_col)
+                c1 = max(acol, target_col)
+                selected_cells.clear()
+                for rr in range(r0, r1 + 1):
+                    for cc in range(c0, c1 + 1):
+                        selected_cells.add((rr, cc))
+            else:
+                selection_anchor["row"] = target_row
+                selection_anchor["col"] = target_col
+                selected_cells.clear()
+                selected_cells.add((target_row, target_col))
+
+            region_id_var.set(str(preview_regions[target_row][target_col]))
+            selected_label.config(text=f"Selected: {len(selected_cells)} cell(s)")
+            if old_row != target_row or old_col != target_col or extend:
+                redraw()
+
         def apply_region_id(_event=None):
-            if selected["row"] is None or selected["col"] is None:
+            if not selected_cells:
                 return
             raw = region_id_var.get().strip()
             if not raw:
@@ -397,24 +432,48 @@ class QueensUI:
             if rid < 0 or rid > 19:
                 messagebox.showerror("Invalid Region", "Region id must be between 0 and 19.", parent=preview)
                 return
-            preview_regions[selected["row"]][selected["col"]] = rid
+            for rr, cc in selected_cells:
+                preview_regions[rr][cc] = rid
             redraw()
 
         def on_click(event):
             col = event.x // cell_px
             row = event.y // cell_px
             if 0 <= row < size and 0 <= col < size:
-                selected["row"] = row
-                selected["col"] = col
-                selected_label.config(text=f"Selected: row {row}, col {col}")
-                preview_regions[row][col] = (preview_regions[row][col] + 1) % 20
-                region_id_var.set(str(preview_regions[row][col]))
-                redraw()
+                shift_pressed = bool(event.state & 0x0001)
+                ctrl_pressed = bool(event.state & 0x0004)
+                set_selection(row, col, extend=shift_pressed)
+                if ctrl_pressed:
+                    preview_regions[row][col] = (preview_regions[row][col] + 1) % 20
+                    region_id_var.set(str(preview_regions[row][col]))
+                    redraw()
+
+        def on_arrow(event):
+            delta = {
+                "Up": (-1, 0),
+                "Down": (1, 0),
+                "Left": (0, -1),
+                "Right": (0, 1),
+            }.get(event.keysym)
+            if delta is None:
+                return
+
+            dr, dc = delta
+            next_row = cursor["row"] + dr
+            next_col = cursor["col"] + dc
+            shift_pressed = bool(event.state & 0x0001)
+            set_selection(next_row, next_col, extend=shift_pressed)
+            return "break"
 
         canvas.bind("<Button-1>", on_click)
         region_id_entry.bind("<Return>", apply_region_id)
-        ttk.Button(editor_row, text="Apply to Selected Cell", command=apply_region_id).pack(side=tk.LEFT, padx=(8, 0))
+        preview.bind("<Up>", on_arrow)
+        preview.bind("<Down>", on_arrow)
+        preview.bind("<Left>", on_arrow)
+        preview.bind("<Right>", on_arrow)
+        ttk.Button(editor_row, text="Apply to Selected Cells", command=apply_region_id).pack(side=tk.LEFT, padx=(8, 0))
         draw_legend()
+        preview.focus_set()
         redraw()
 
         result = {"value": "cancel"}
