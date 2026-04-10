@@ -225,25 +225,7 @@ class QueensUI:
             cropped = image.crop(bounds)
             size, confidence = self._estimate_grid_size(cropped)
 
-            regions = self._regions_from_image(cropped, size)
-
-            action = self._show_import_preview(
-                regions=regions,
-                size=size,
-                confidence=confidence,
-                source_label=Path(image_path).name,
-                preview_image=cropped,
-            )
-            if action == "manual":
-                manual_size = simpledialog.askinteger(
-                    "Board Size",
-                    "Enter board size N manually:",
-                    minvalue=1,
-                    parent=self.root,
-                )
-                if manual_size is None:
-                    return
-                size = manual_size
+            while True:
                 regions = self._regions_from_image(cropped, size)
                 action = self._show_import_preview(
                     regions=regions,
@@ -252,7 +234,26 @@ class QueensUI:
                     source_label=Path(image_path).name,
                     preview_image=cropped,
                 )
-            elif action != "use":
+
+                if action == "manual":
+                    manual_size = simpledialog.askinteger(
+                        "Board Size",
+                        "Enter board size N manually:",
+                        minvalue=1,
+                        parent=self.root,
+                    )
+                    if manual_size is None:
+                        return
+                    size = manual_size
+                    continue
+
+                if action in ("add_row", "add_col"):
+                    size += 1
+                    continue
+
+                if action == "use":
+                    break
+
                 return
 
             regions = self._normalize_region_ids(regions)
@@ -304,7 +305,8 @@ class QueensUI:
                 f"Source: {source_label}\n"
                 f"Detected size: {size}x{size} (confidence {confidence:.2f})\n"
                 "Click to select cells. Use Shift+Click or Shift+Arrow to extend selection.\n"
-                "Enter a region id (0-19) and apply to change the whole selection in one go."
+                "Enter a region id (0-19) and apply to change the whole selection in one go.\n"
+                "If detection missed edge cells, use Add Row or Add Column."
             ),
             justify="left",
             wraplength=660,
@@ -494,6 +496,8 @@ class QueensUI:
             preview.destroy()
 
         ttk.Button(button_row, text="Use Detected", command=lambda: choose("use")).pack(side=tk.LEFT)
+        ttk.Button(button_row, text="Add Row", command=lambda: choose("add_row")).pack(side=tk.LEFT, padx=(8, 0))
+        ttk.Button(button_row, text="Add Column", command=lambda: choose("add_col")).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(button_row, text="Enter Size Manually", command=lambda: choose("manual")).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Button(button_row, text="Cancel", command=lambda: choose("cancel")).pack(side=tk.LEFT, padx=(8, 0))
 
