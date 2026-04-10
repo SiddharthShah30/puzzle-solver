@@ -889,23 +889,32 @@ class TangoUI:
     ) -> str:
         preview = tk.Toplevel(self.root)
         preview.title("Tango Import Preview")
-        preview.geometry("720x820")
+        preview.geometry("1160x760")
         preview.transient(self.root)
         preview.grab_set()
 
         container = ttk.Frame(preview, padding=12)
         container.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(container, text="Detected Tango Puzzle", font=("Helvetica", 13, "bold")).pack(anchor="w")
+        body = ttk.Frame(container)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        left_panel = ttk.Frame(body)
+        left_panel.pack(side=tk.LEFT, fill=tk.Y)
+
+        right_panel = ttk.Frame(body)
+        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(14, 0))
+
+        ttk.Label(left_panel, text="Detected Tango Puzzle", font=("Helvetica", 13, "bold")).pack(anchor="w")
         ttk.Label(
-            container,
+            left_panel,
             text=(
                 f"Source: {source_label}\n"
                 f"Detected size: {rows}x{cols} (confidence {confidence:.2f})\n"
                 "Click any cell to cycle Empty -> Symbol 1 -> Symbol 2."
             ),
             justify="left",
-            wraplength=680,
+            wraplength=450,
         ).pack(anchor="w", pady=(6, 10))
 
         if candidate_info:
@@ -928,11 +937,11 @@ class TangoUI:
                 + "\n"
                 + format_axis("Cols", col_candidates)
             )
-            ttk.Label(container, text=candidate_text, justify="left", wraplength=680).pack(anchor="w", pady=(0, 8))
+            ttk.Label(left_panel, text=candidate_text, justify="left", wraplength=450).pack(anchor="w", pady=(0, 8))
 
         if ImageTk is not None and preview_image is not None:
-            max_w = 560
-            max_h = 180
+            max_w = 450
+            max_h = 220
             pw, ph = preview_image.size
             scale = min(max_w / max(1, pw), max_h / max(1, ph), 1.0)
             sw = max(1, int(pw * scale))
@@ -940,14 +949,14 @@ class TangoUI:
             resized = preview_image.resize((sw, sh))
             preview_photo = ImageTk.PhotoImage(resized)
             setattr(preview, "_img_ref", preview_photo)
-            ttk.Label(container, text="Detected Board Crop").pack(anchor="w")
-            ttk.Label(container, image=preview_photo).pack(anchor="w", pady=(2, 8))
+            ttk.Label(left_panel, text="Detected Board Crop").pack(anchor="w")
+            ttk.Label(left_panel, image=preview_photo).pack(anchor="w", pady=(2, 8))
 
-        cell_px = max(26, min(64, 560 // max(rows, cols)))
+        cell_px = max(24, min(72, 640 // max(rows, cols)))
         canvas_w = cell_px * cols
         canvas_h = cell_px * rows
-        canvas = tk.Canvas(container, width=canvas_w, height=canvas_h, bg="#ffffff", highlightthickness=0)
-        canvas.pack(pady=(4, 12))
+        canvas = tk.Canvas(right_panel, width=canvas_w, height=canvas_h, bg="#ffffff", highlightthickness=0)
+        canvas.pack(anchor="n", pady=(2, 10))
 
         preview_clues = [row[:] for row in clues]
 
@@ -1009,7 +1018,7 @@ class TangoUI:
 
         result = {"value": "cancel"}
 
-        button_row = ttk.Frame(container)
+        button_row = ttk.Frame(right_panel)
         button_row.pack(fill=tk.X, pady=(4, 0))
 
         def choose(value: str):

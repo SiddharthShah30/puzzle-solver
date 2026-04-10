@@ -291,16 +291,25 @@ class QueensUI:
     ) -> str:
         preview = tk.Toplevel(self.root)
         preview.title("Queens Import Preview")
-        preview.geometry("760x840")
+        preview.geometry("1180x760")
         preview.transient(self.root)
         preview.grab_set()
 
         container = ttk.Frame(preview, padding=12)
         container.pack(fill=tk.BOTH, expand=True)
 
-        ttk.Label(container, text="Detected Queens Puzzle", font=("Helvetica", 13, "bold")).pack(anchor="w")
+        body = ttk.Frame(container)
+        body.pack(fill=tk.BOTH, expand=True)
+
+        left_panel = ttk.Frame(body)
+        left_panel.pack(side=tk.LEFT, fill=tk.Y)
+
+        right_panel = ttk.Frame(body)
+        right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(14, 0))
+
+        ttk.Label(left_panel, text="Detected Queens Puzzle", font=("Helvetica", 13, "bold")).pack(anchor="w")
         ttk.Label(
-            container,
+            left_panel,
             text=(
                 f"Source: {source_label}\n"
                 f"Detected size: {size}x{size} (confidence {confidence:.2f})\n"
@@ -309,12 +318,12 @@ class QueensUI:
                 "If detection missed edge cells, use Add Row or Add Column."
             ),
             justify="left",
-            wraplength=660,
+            wraplength=460,
         ).pack(anchor="w", pady=(6, 10))
 
         if ImageTk is not None and preview_image is not None:
-            max_w = 560
-            max_h = 180
+            max_w = 460
+            max_h = 220
             pw, ph = preview_image.size
             scale = min(max_w / max(1, pw), max_h / max(1, ph), 1.0)
             sw = max(1, int(pw * scale))
@@ -322,21 +331,21 @@ class QueensUI:
             resized = preview_image.resize((sw, sh))
             preview_photo = ImageTk.PhotoImage(resized)
             setattr(preview, "_img_ref", preview_photo)
-            ttk.Label(container, text="Detected Board Crop").pack(anchor="w")
-            ttk.Label(container, image=preview_photo).pack(anchor="w", pady=(2, 8))
+            ttk.Label(left_panel, text="Detected Board Crop").pack(anchor="w")
+            ttk.Label(left_panel, image=preview_photo).pack(anchor="w", pady=(2, 8))
 
-        board_px = 560
-        cell_px = max(30, board_px // max(1, size))
+        board_px = 640
+        cell_px = max(24, min(70, board_px // max(1, size)))
         canvas_px = cell_px * size
-        canvas = tk.Canvas(container, width=canvas_px, height=canvas_px, bg="#ffffff", highlightthickness=0)
-        canvas.pack(pady=(4, 12))
+        canvas = tk.Canvas(right_panel, width=canvas_px, height=canvas_px, bg="#ffffff", highlightthickness=0)
+        canvas.pack(anchor="n", pady=(2, 10))
 
         preview_regions = [row[:] for row in regions]
         cursor = {"row": 0, "col": 0}
         selection_anchor = {"row": 0, "col": 0}
         selected_cells = {(0, 0)}
 
-        editor_row = ttk.Frame(container)
+        editor_row = ttk.Frame(left_panel)
         editor_row.pack(fill=tk.X, pady=(0, 8))
         ttk.Label(editor_row, text="Region id (0-19):").pack(side=tk.LEFT)
         region_id_var = tk.StringVar(value="0")
@@ -345,7 +354,7 @@ class QueensUI:
         selected_label = ttk.Label(editor_row, text="Selected: 1 cell")
         selected_label.pack(side=tk.LEFT)
 
-        legend = tk.Canvas(container, width=canvas_px, height=86, bg="#ffffff", highlightthickness=0)
+        legend = tk.Canvas(left_panel, width=460, height=86, bg="#ffffff", highlightthickness=0)
         legend.pack(pady=(0, 8))
 
         def draw_legend():
@@ -480,7 +489,7 @@ class QueensUI:
 
         result = {"value": "cancel"}
 
-        button_row = ttk.Frame(container)
+        button_row = ttk.Frame(right_panel)
         button_row.pack(fill=tk.X, pady=(4, 0))
 
         def choose(value: str):
