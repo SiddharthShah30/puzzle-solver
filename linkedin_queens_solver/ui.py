@@ -323,7 +323,7 @@ class QueensUI:
 
         if ImageTk is not None and preview_image is not None:
             max_w = 460
-            max_h = 220
+            max_h = 150
             pw, ph = preview_image.size
             scale = min(max_w / max(1, pw), max_h / max(1, ph), 1.0)
             sw = max(1, int(pw * scale))
@@ -354,24 +354,24 @@ class QueensUI:
         selected_label = ttk.Label(editor_row, text="Selected: 1 cell")
         selected_label.pack(side=tk.LEFT)
 
-        legend = tk.Canvas(left_panel, width=460, height=86, bg="#ffffff", highlightthickness=0)
-        legend.pack(pady=(0, 8))
+        ttk.Label(left_panel, text="Color manual (0-19):").pack(anchor="w")
+        legend = tk.Canvas(left_panel, width=460, height=68, bg="#ffffff", highlightthickness=0)
+        legend.pack(pady=(2, 8))
 
         def draw_legend():
             legend.delete("all")
             cols = 10
-            sw = max(20, canvas_px // cols)
-            sh = 36
+            sw = 44
+            sh = 30
             for idx in range(20):
                 rr = idx // cols
                 cc = idx % cols
                 x0 = cc * sw + 4
                 y0 = rr * sh + 4
                 x1 = x0 + sw - 8
-                y1 = y0 + sh - 10
+                y1 = y0 + sh - 8
                 legend.create_rectangle(x0, y0, x1, y1, fill=self._color_for_region(idx), outline="#2a2a2a", width=1)
                 legend.create_text((x0 + x1) / 2, (y0 + y1) / 2, text=str(idx), fill="#1a1a1a", font=("Helvetica", 9, "bold"))
-            legend.create_text(4, 74, anchor="w", text="Color manual: each number maps to the swatch above.", fill="#404040", font=("Helvetica", 9))
 
         def redraw():
             canvas.delete("all")
