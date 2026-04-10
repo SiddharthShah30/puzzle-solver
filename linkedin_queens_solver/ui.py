@@ -18,15 +18,28 @@ except ImportError:  # pragma: no cover - runtime fallback
 from .solver import QueensPuzzleSolver
 
 
-COLOR_PALETTE = {
-    0: "#a58dc8",
-    1: "#edbe86",
-    2: "#8bb9eb",
-    3: "#99c78a",
-    4: "#b8b8b8",
-    5: "#f7785f",
-    6: "#c7d96e",
-}
+COLOR_PALETTE = [
+    "#a58dc8",
+    "#edbe86",
+    "#8bb9eb",
+    "#99c78a",
+    "#b8b8b8",
+    "#f7785f",
+    "#c7d96e",
+    "#84d8d8",
+    "#d49ab3",
+    "#f2d77c",
+    "#9fa9e3",
+    "#7fcf9c",
+    "#f0a672",
+    "#c2a786",
+    "#92c6bf",
+    "#e59797",
+    "#d4cf8c",
+    "#8eb2c9",
+    "#c5a8dc",
+    "#a4b087",
+]
 
 
 class QueensUI:
@@ -242,10 +255,30 @@ class QueensUI:
             elif action != "use":
                 return
 
+            regions = self._normalize_region_ids(regions)
             self._load_from_data({"regions": regions, "fixed_queens": [], "blocked": []}, source_label=Path(image_path).name)
             self.status.config(text=f"Imported regions from screenshot ({size}x{size}). Add X/Queens and solve.")
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc))
+
+    def _color_for_region(self, rid: int) -> str:
+        if rid < 0:
+            return "#dddddd"
+        return COLOR_PALETTE[rid % len(COLOR_PALETTE)]
+
+    def _normalize_region_ids(self, regions: List[List[int]]) -> List[List[int]]:
+        remap = {}
+        next_id = 0
+        normalized: List[List[int]] = []
+        for row in regions:
+            out_row = []
+            for rid in row:
+                if rid not in remap:
+                    remap[rid] = next_id
+                    next_id += 1
+                out_row.append(remap[rid])
+            normalized.append(out_row)
+        return normalized
 
     def _show_import_preview(
         self,
@@ -270,7 +303,8 @@ class QueensUI:
             text=(
                 f"Source: {source_label}\n"
                 f"Detected size: {size}x{size} (confidence {confidence:.2f})\n"
-                "Click cells to cycle region colors before importing."
+                "Click a cell to select it. Enter a region id (0-19) and apply.\n"
+                "You can still click a selected cell to cycle quickly."
             ),
             justify="left",
             wraplength=660,
@@ -298,6 +332,34 @@ class QueensUI:
         preview_regions = [row[:] for row in regions]
         selected = {"row": None, "col": None}
 
+        editor_row = ttk.Frame(container)
+        editor_row.pack(fill=tk.X, pady=(0, 8))
+        ttk.Label(editor_row, text="Region id (0-19):").pack(side=tk.LEFT)
+        region_id_var = tk.StringVar(value="0")
+        region_id_entry = ttk.Entry(editor_row, textvariable=region_id_var, width=6)
+        region_id_entry.pack(side=tk.LEFT, padx=(6, 8))
+        selected_label = ttk.Label(editor_row, text="Selected: none")
+        selected_label.pack(side=tk.LEFT)
+
+        legend = tk.Canvas(container, width=canvas_px, height=86, bg="#ffffff", highlightthickness=0)
+        legend.pack(pady=(0, 8))
+
+        def draw_legend():
+            legend.delete("all")
+            cols = 10
+            sw = max(20, canvas_px // cols)
+            sh = 36
+            for idx in range(20):
+                rr = idx // cols
+                cc = idx % cols
+                x0 = cc * sw + 4
+                y0 = rr * sh + 4
+                x1 = x0 + sw - 8
+                y1 = y0 + sh - 10
+                legend.create_rectangle(x0, y0, x1, y1, fill=self._color_for_region(idx), outline="#2a2a2a", width=1)
+                legend.create_text((x0 + x1) / 2, (y0 + y1) / 2, text=str(idx), fill="#1a1a1a", font=("Helvetica", 9, "bold"))
+            legend.create_text(4, 74, anchor="w", text="Color manual: each number maps to the swatch above.", fill="#404040", font=("Helvetica", 9))
+
         def redraw():
             canvas.delete("all")
             for r in range(size):
@@ -307,7 +369,7 @@ class QueensUI:
                     x1 = x0 + cell_px
                     y1 = y0 + cell_px
                     rid = preview_regions[r][c]
-                    fill = COLOR_PALETTE.get(rid, "#dddddd")
+                    fill = self._color_for_region(rid)
                     canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#2a2a2a", width=1)
                     canvas.create_text(
                         (x0 + x1) / 2,
@@ -321,16 +383,38 @@ class QueensUI:
 
             canvas.create_rectangle(0, 0, canvas_px, canvas_px, outline="#111111", width=2)
 
+        def apply_region_id(_event=None):
+            if selected["row"] is None or selected["col"] is None:
+                return
+            raw = region_id_var.get().strip()
+            if not raw:
+                return
+            try:
+                rid = int(raw)
+            except ValueError:
+                messagebox.showerror("Invalid Region", "Region id must be an integer between 0 and 19.", parent=preview)
+                return
+            if rid < 0 or rid > 19:
+                messagebox.showerror("Invalid Region", "Region id must be between 0 and 19.", parent=preview)
+                return
+            preview_regions[selected["row"]][selected["col"]] = rid
+            redraw()
+
         def on_click(event):
             col = event.x // cell_px
             row = event.y // cell_px
             if 0 <= row < size and 0 <= col < size:
                 selected["row"] = row
                 selected["col"] = col
-                preview_regions[row][col] = (preview_regions[row][col] + 1) % size
+                selected_label.config(text=f"Selected: row {row}, col {col}")
+                preview_regions[row][col] = (preview_regions[row][col] + 1) % 20
+                region_id_var.set(str(preview_regions[row][col]))
                 redraw()
 
         canvas.bind("<Button-1>", on_click)
+        region_id_entry.bind("<Return>", apply_region_id)
+        ttk.Button(editor_row, text="Apply to Selected Cell", command=apply_region_id).pack(side=tk.LEFT, padx=(8, 0))
+        draw_legend()
         redraw()
 
         result = {"value": "cancel"}
@@ -344,6 +428,10 @@ class QueensUI:
                 for r in range(size):
                     for c in range(size):
                         regions[r][c] = preview_regions[r][c]
+                normalized = self._normalize_region_ids(regions)
+                for r in range(size):
+                    for c in range(size):
+                        regions[r][c] = normalized[r][c]
             preview.destroy()
 
         ttk.Button(button_row, text="Use Detected", command=lambda: choose("use")).pack(side=tk.LEFT)
@@ -687,7 +775,7 @@ class QueensUI:
                 y2 = y1 + self.cell_size
 
                 rid = self.region_map[r][c]
-                fill = COLOR_PALETTE.get(rid, "#dddddd")
+                fill = self._color_for_region(rid)
                 self.canvas.create_rectangle(x1, y1, x2, y2, fill=fill, outline="#242424", width=1)
 
                 if (r, c) in self.blocked_cells:

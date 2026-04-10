@@ -411,8 +411,81 @@ class TangoUI:
                     chosen.append(idx)
             return len(chosen)
 
+        def strongest_peaks(profile: List[float]) -> List[int]:
+            if len(profile) < 7:
+                return []
+
+            p_min = min(profile)
+            p_max = max(profile)
+            if p_max <= p_min:
+                return []
+
+            threshold = p_min + 0.52 * (p_max - p_min)
+            candidates = [
+                idx
+                for idx in range(2, len(profile) - 2)
+                if profile[idx] >= threshold
+                and profile[idx] >= profile[idx - 1]
+                and profile[idx] >= profile[idx + 1]
+            ]
+
+            min_sep = max(2, int(len(profile) / 28))
+            chosen: List[int] = []
+            for idx in sorted(candidates, key=lambda i: profile[i], reverse=True):
+                if all(abs(idx - prev) >= min_sep for prev in chosen):
+                    chosen.append(idx)
+
+            chosen.sort()
+            return chosen
+
+        def periodicity_estimate(profile: List[float], length: int) -> Optional[int]:
+            values = profile[:]
+            mean = sum(values) / max(1, len(values))
+            values = [v - mean for v in values]
+
+            lag_min = max(3, int(length / max_size))
+            lag_max = max(lag_min + 1, int(length / max(min_size, 2)))
+            lag_max = min(lag_max, max(4, length - 4))
+            if lag_min >= lag_max:
+                return None
+
+            best_lag = None
+            best_corr = -1e9
+            for lag in range(lag_min, lag_max + 1):
+                limit = len(values) - lag
+                if limit <= 4:
+                    continue
+                corr = 0.0
+                energy_a = 0.0
+                energy_b = 0.0
+                for i in range(limit):
+                    a = values[i]
+                    b = values[i + lag]
+                    corr += a * b
+                    energy_a += a * a
+                    energy_b += b * b
+                if energy_a <= 1e-9 or energy_b <= 1e-9:
+                    continue
+                norm = corr / ((energy_a ** 0.5) * (energy_b ** 0.5))
+                if norm > best_corr:
+                    best_corr = norm
+                    best_lag = lag
+
+            if best_lag is None:
+                return None
+
+            count = int(round(length / float(best_lag)))
+            if count < min_size or count > max_size:
+                return None
+            return count
+
         rough_rows = max(2, detect_peak_count(h_profile) - 1)
         rough_cols = max(2, detect_peak_count(v_profile) - 1)
+        peak_rows = strongest_peaks(h_profile)
+        peak_cols = strongest_peaks(v_profile)
+
+        periodic_rows = periodicity_estimate(h_profile, height)
+        periodic_cols = periodicity_estimate(v_profile, width)
 
         def border_pair(profile: List[float], length: int) -> Tuple[int, int]:
             zone = max(8, int(length * 0.20))
@@ -469,18 +542,73 @@ class TangoUI:
         row_lookup = {n: (score, bounds) for n, score, bounds in row_scored}
         col_lookup = {n: (score, bounds) for n, score, bounds in col_scored}
 
-        best_rows = rough_rows if rough_rows in row_lookup else row_scored[0][0]
-        best_cols = rough_cols if rough_cols in col_lookup else col_scored[0][0]
+        row_candidates = {row_scored[0][0], row_scored[1][0] if len(row_scored) > 1 else row_scored[0][0], rough_rows}
+        col_candidates = {col_scored[0][0], col_scored[1][0] if len(col_scored) > 1 else col_scored[0][0], rough_cols}
 
-        if best_rows in row_lookup:
-            best_row_score, (top, bottom) = row_lookup[best_rows]
-        else:
-            best_row_score, (top, bottom) = row_scored[0][1:3]
+        if periodic_rows is not None:
+            row_candidates.add(periodic_rows)
+        if periodic_cols is not None:
+            col_candidates.add(periodic_cols)
 
-        if best_cols in col_lookup:
-            best_col_score, (left, right) = col_lookup[best_cols]
-        else:
-            best_col_score, (left, right) = col_scored[0][1:3]
+        if len(peak_rows) >= 3:
+            row_spacings = [peak_rows[i + 1] - peak_rows[i] for i in range(len(peak_rows) - 1)]
+            row_step = sum(row_spacings) / max(1, len(row_spacings))
+            if row_step > 1:
+                from_peaks = int(round((peak_rows[-1] - peak_rows[0]) / row_step))
+                if min_size <= from_peaks <= max_size:
+                    row_candidates.add(from_peaks)
+
+        if len(peak_cols) >= 3:
+            col_spacings = [peak_cols[i + 1] - peak_cols[i] for i in range(len(peak_cols) - 1)]
+            col_step = sum(col_spacings) / max(1, len(col_spacings))
+            if col_step > 1:
+                from_peaks = int(round((peak_cols[-1] - peak_cols[0]) / col_step))
+                if min_size <= from_peaks <= max_size:
+                    col_candidates.add(from_peaks)
+
+        def select_count(
+            candidates: Set[int],
+            lookup: dict,
+            rough_value: int,
+            periodic_value: Optional[int],
+            primary_weight: float,
+        ) -> Tuple[int, float, Tuple[int, int]]:
+            best_choice = None
+            best_metric = -1e9
+            for n in candidates:
+                if n not in lookup:
+                    continue
+                score, bounds = lookup[n]
+                metric = score
+                metric -= 0.05 * abs(n - rough_value)
+                if periodic_value is not None:
+                    metric -= 0.04 * abs(n - periodic_value)
+                metric += primary_weight if n == rough_value else 0.0
+                if best_choice is None or metric > best_metric:
+                    best_choice = (n, score, bounds)
+                    best_metric = metric
+
+            if best_choice is None:
+                n, score, bounds = max(lookup.items(), key=lambda item: item[1][0])[0], 0.0, (1, 1)
+                score, bounds = lookup[n]
+                return n, score, bounds
+
+            return best_choice
+
+        best_rows, best_row_score, (top, bottom) = select_count(
+            row_candidates,
+            row_lookup,
+            rough_rows,
+            periodic_rows,
+            primary_weight=0.06,
+        )
+        best_cols, best_col_score, (left, right) = select_count(
+            col_candidates,
+            col_lookup,
+            rough_cols,
+            periodic_cols,
+            primary_weight=0.06,
+        )
 
         second_row_score = row_scored[1][1] if len(row_scored) > 1 else -1e9
         second_col_score = col_scored[1][1] if len(col_scored) > 1 else -1e9
