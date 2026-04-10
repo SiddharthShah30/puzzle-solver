@@ -1016,9 +1016,19 @@ class TangoUI:
         h_edges: List[List[int]],
         v_edges: List[List[int]],
         edge_candidates: List[Tuple[str, int, int, float]],
-    ) -> Tuple[List[List[int]], List[List[int]]]:
+    ) -> Tuple[List[List[int]], List[List[int]], Dict[str, int]]:
+        detected_count = len(edge_candidates)
+
+        def count_nonzero(h_grid: List[List[int]], v_grid: List[List[int]]) -> int:
+            return sum(1 for row in h_grid for value in row if value != 0) + sum(1 for row in v_grid for value in row if value != 0)
+
         if self._is_satisfiable_with_constraints(clues, h_edges, v_edges):
-            return h_edges, v_edges
+            kept = count_nonzero(h_edges, v_edges)
+            return h_edges, v_edges, {
+                "detected": detected_count,
+                "kept": kept,
+                "removed": max(0, detected_count - kept),
+            }
 
         ordered = sorted(edge_candidates, key=lambda item: item[3])
         h_work = [row[:] for row in h_edges]
@@ -1031,9 +1041,19 @@ class TangoUI:
                 v_work[r][c] = 0
 
             if self._is_satisfiable_with_constraints(clues, h_work, v_work):
-                return h_work, v_work
+                kept = count_nonzero(h_work, v_work)
+                return h_work, v_work, {
+                    "detected": detected_count,
+                    "kept": kept,
+                    "removed": max(0, detected_count - kept),
+                }
 
-        return h_work, v_work
+        kept = count_nonzero(h_work, v_work)
+        return h_work, v_work, {
+            "detected": detected_count,
+            "kept": kept,
+            "removed": max(0, detected_count - kept),
+        }
 
     def _classify_symbol_cell(self, image, x0: int, y0: int, x1: int, y1: int) -> int:
         orange_hits = 0
@@ -1092,7 +1112,7 @@ class TangoUI:
 
             clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
             h_edges, v_edges, edge_candidates = self._extract_edges_from_image(cropped, rows, cols, inner_bounds)
-            h_edges, v_edges = self._sanitize_detected_edges(clues, h_edges, v_edges, edge_candidates)
+            h_edges, v_edges, edge_summary = self._sanitize_detected_edges(clues, h_edges, v_edges, edge_candidates)
             action = self._show_import_preview(
                 clues=clues,
                 h_edges=h_edges,
@@ -1103,6 +1123,7 @@ class TangoUI:
                 source_label=Path(image_path).name,
                 preview_image=cropped,
                 candidate_info=candidate_info,
+                edge_summary=edge_summary,
             )
 
             if action == "manual":
@@ -1125,7 +1146,7 @@ class TangoUI:
                 rows, cols = manual_rows, manual_cols
                 clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
                 h_edges, v_edges, edge_candidates = self._extract_edges_from_image(cropped, rows, cols, inner_bounds)
-                h_edges, v_edges = self._sanitize_detected_edges(clues, h_edges, v_edges, edge_candidates)
+                h_edges, v_edges, edge_summary = self._sanitize_detected_edges(clues, h_edges, v_edges, edge_candidates)
                 action = self._show_import_preview(
                     clues=clues,
                     h_edges=h_edges,
@@ -1136,6 +1157,7 @@ class TangoUI:
                     source_label=Path(image_path).name,
                     preview_image=cropped,
                     candidate_info=candidate_info,
+                    edge_summary=edge_summary,
                 )
 
             if action != "use":
@@ -1166,6 +1188,7 @@ class TangoUI:
         source_label: str,
         preview_image=None,
         candidate_info: Optional[Dict[str, List[Tuple[int, float]]]] = None,
+        edge_summary: Optional[Dict[str, int]] = None,
     ) -> str:
         preview = tk.Toplevel(self.root)
         preview.title("Tango Import Preview")
@@ -1197,6 +1220,19 @@ class TangoUI:
             justify="left",
             wraplength=450,
         ).pack(anchor="w", pady=(6, 10))
+
+        if edge_summary is not None:
+            ttk.Label(
+                left_panel,
+                text=(
+                    "Detected edge signs: "
+                    f"{edge_summary.get('detected', 0)}, "
+                    f"kept: {edge_summary.get('kept', 0)}, "
+                    f"auto-removed: {edge_summary.get('removed', 0)}"
+                ),
+                justify="left",
+                wraplength=450,
+            ).pack(anchor="w", pady=(0, 8))
 
         if candidate_info:
             row_candidates = candidate_info.get("row_candidates", [])[:3]
