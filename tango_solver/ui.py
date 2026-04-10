@@ -5,7 +5,7 @@ from __future__ import annotations
 import colorsys
 import json
 from pathlib import Path
-from typing import List, Optional, Set, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 import tkinter as tk
 from tkinter import filedialog, messagebox, simpledialog, ttk
 
@@ -348,7 +348,12 @@ class TangoUI:
         confidence = 1.0 + max(0.0, best_score - second_score) / max(abs(second_score), 1.0)
         return best_n, confidence
 
-    def _estimate_board_shape(self, image, min_size: int = 2, max_size: int = 16) -> Tuple[int, int, Tuple[int, int, int, int], float]:
+    def _estimate_board_shape(
+        self,
+        image,
+        min_size: int = 2,
+        max_size: int = 16,
+    ) -> Tuple[int, int, Tuple[int, int, int, int], float, Dict[str, List[Tuple[int, float]]]]:
         width, height = image.size
         gray = image.convert("L")
         px = gray.load()
@@ -617,7 +622,14 @@ class TangoUI:
             max(0.0, best_col_score - second_col_score) / max(abs(second_col_score), 1.0),
         )
 
-        return best_rows, best_cols, (left, top, right, bottom), confidence
+        row_top = [(n, score) for n, score, _ in row_scored[:3]]
+        col_top = [(n, score) for n, score, _ in col_scored[:3]]
+        candidate_info = {
+            "row_candidates": row_top,
+            "col_candidates": col_top,
+        }
+
+        return best_rows, best_cols, (left, top, right, bottom), confidence, candidate_info
 
     def _detect_symbol_features(self, image, bounds: Tuple[int, int, int, int], rows: int, cols: int):
         left, top, right, bottom = bounds
@@ -815,7 +827,7 @@ class TangoUI:
             image = Image.open(image_path).convert("RGB")
             bounds = self._find_content_bounds(image)
             cropped = image.crop(bounds)
-            rows, cols, inner_bounds, confidence = self._estimate_board_shape(cropped)
+            rows, cols, inner_bounds, confidence, candidate_info = self._estimate_board_shape(cropped)
 
             clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
             action = self._show_import_preview(
@@ -825,6 +837,7 @@ class TangoUI:
                 confidence=confidence,
                 source_label=Path(image_path).name,
                 preview_image=cropped,
+                candidate_info=candidate_info,
             )
 
             if action == "manual":
@@ -853,6 +866,7 @@ class TangoUI:
                     confidence=confidence,
                     source_label=Path(image_path).name,
                     preview_image=cropped,
+                    candidate_info=candidate_info,
                 )
 
             if action != "use":
@@ -871,6 +885,7 @@ class TangoUI:
         confidence: float,
         source_label: str,
         preview_image=None,
+        candidate_info: Optional[Dict[str, List[Tuple[int, float]]]] = None,
     ) -> str:
         preview = tk.Toplevel(self.root)
         preview.title("Tango Import Preview")
@@ -892,6 +907,28 @@ class TangoUI:
             justify="left",
             wraplength=680,
         ).pack(anchor="w", pady=(6, 10))
+
+        if candidate_info:
+            row_candidates = candidate_info.get("row_candidates", [])[:3]
+            col_candidates = candidate_info.get("col_candidates", [])[:3]
+
+            def format_axis(prefix: str, values: List[Tuple[int, float]]) -> str:
+                if not values:
+                    return f"{prefix}: n/a"
+                top = values[0][1]
+                parts = []
+                for n, score in values:
+                    rel = 1.0 if top == 0 else (score / top)
+                    parts.append(f"{n} ({rel:.2f})")
+                return f"{prefix}: " + ", ".join(parts)
+
+            candidate_text = (
+                "Top detected size candidates (relative confidence):\n"
+                + format_axis("Rows", row_candidates)
+                + "\n"
+                + format_axis("Cols", col_candidates)
+            )
+            ttk.Label(container, text=candidate_text, justify="left", wraplength=680).pack(anchor="w", pady=(0, 8))
 
         if ImageTk is not None and preview_image is not None:
             max_w = 560
