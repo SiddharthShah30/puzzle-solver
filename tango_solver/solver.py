@@ -13,7 +13,12 @@ import time
 
 
 class TangoPuzzleSolver:
-    def __init__(self, clues: List[List[int]]):
+    def __init__(
+        self,
+        clues: List[List[int]],
+        h_edges: Optional[List[List[int]]] = None,
+        v_edges: Optional[List[List[int]]] = None,
+    ):
         self.initial_board = [row[:] for row in clues]
         self.rows = len(clues)
         self.cols = len(clues[0]) if clues else 0
@@ -27,10 +32,112 @@ class TangoPuzzleSolver:
                 if value not in valid_values:
                     raise ValueError("Grid values must be 0 (empty), 1, or 2")
 
+        self.h_edges = self._normalize_h_edges(h_edges)
+        self.v_edges = self._normalize_v_edges(v_edges)
+
         self.solution: Optional[List[List[int]]] = None
         self.solution_count = 0
         self.solve_time = 0.0
         self.moves = 0
+
+    def _normalize_h_edges(self, h_edges: Optional[List[List[int]]]) -> List[List[int]]:
+        if self.cols <= 1:
+            return [[0] * 0 for _ in range(self.rows)]
+
+        if h_edges is None:
+            return [[0 for _ in range(self.cols - 1)] for _ in range(self.rows)]
+
+        if len(h_edges) != self.rows or any(len(row) != self.cols - 1 for row in h_edges):
+            raise ValueError("Horizontal edge constraints must be rows x (cols-1)")
+
+        out: List[List[int]] = []
+        for row in h_edges:
+            out_row: List[int] = []
+            for value in row:
+                if value not in (0, 1, 2):
+                    raise ValueError("Horizontal edge values must be 0 (none), 1 (=), or 2 (X)")
+                out_row.append(int(value))
+            out.append(out_row)
+        return out
+
+    def _normalize_v_edges(self, v_edges: Optional[List[List[int]]]) -> List[List[int]]:
+        if self.rows <= 1:
+            return [[0 for _ in range(self.cols)] for _ in range(0)]
+
+        if v_edges is None:
+            return [[0 for _ in range(self.cols)] for _ in range(self.rows - 1)]
+
+        if len(v_edges) != self.rows - 1 or any(len(row) != self.cols for row in v_edges):
+            raise ValueError("Vertical edge constraints must be (rows-1) x cols")
+
+        out: List[List[int]] = []
+        for row in v_edges:
+            out_row: List[int] = []
+            for value in row:
+                if value not in (0, 1, 2):
+                    raise ValueError("Vertical edge values must be 0 (none), 1 (=), or 2 (X)")
+                out_row.append(int(value))
+            out.append(out_row)
+        return out
+
+    def _apply_edge_rules(self, board: List[List[int]]) -> Tuple[bool, bool]:
+        changed = False
+
+        for r in range(self.rows):
+            for c in range(self.cols - 1):
+                edge = self.h_edges[r][c]
+                if edge == 0:
+                    continue
+                a = board[r][c]
+                b = board[r][c + 1]
+
+                if a != 0 and b != 0:
+                    if edge == 1 and a != b:
+                        return False, changed
+                    if edge == 2 and a == b:
+                        return False, changed
+                    continue
+
+                if a == 0 and b == 0:
+                    continue
+
+                known = a if a != 0 else b
+                inferred = known if edge == 1 else (3 - known)
+                if a == 0:
+                    board[r][c] = inferred
+                    changed = True
+                else:
+                    board[r][c + 1] = inferred
+                    changed = True
+
+        for r in range(self.rows - 1):
+            for c in range(self.cols):
+                edge = self.v_edges[r][c]
+                if edge == 0:
+                    continue
+                a = board[r][c]
+                b = board[r + 1][c]
+
+                if a != 0 and b != 0:
+                    if edge == 1 and a != b:
+                        return False, changed
+                    if edge == 2 and a == b:
+                        return False, changed
+                    continue
+
+                if a == 0 and b == 0:
+                    continue
+
+                known = a if a != 0 else b
+                inferred = known if edge == 1 else (3 - known)
+                if a == 0:
+                    board[r][c] = inferred
+                    changed = True
+                else:
+                    board[r + 1][c] = inferred
+                    changed = True
+
+        return True, changed
 
     def _line_targets(self, length: int) -> Tuple[int, int]:
         """Return the max and exact target counts for a line of this length.
@@ -161,6 +268,12 @@ class TangoPuzzleSolver:
         while changed:
             changed = False
 
+            ok, edge_changed = self._apply_edge_rules(board)
+            if not ok:
+                return False
+            if edge_changed:
+                changed = True
+
             for r in range(self.rows):
                 row = board[r][:]
                 ok, row_changed = self._apply_line_rules(row)
@@ -179,6 +292,12 @@ class TangoPuzzleSolver:
                     for r in range(self.rows):
                         board[r][c] = col[r]
                     changed = True
+
+            ok, edge_changed = self._apply_edge_rules(board)
+            if not ok:
+                return False
+            if edge_changed:
+                changed = True
 
             for r in range(self.rows):
                 if not self._line_valid(board[r]):

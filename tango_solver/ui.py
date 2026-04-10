@@ -29,6 +29,8 @@ class TangoUI:
         self.rows = 4
         self.cols = 4
         self.board: List[List[int]] = [[0 for _ in range(self.cols)] for _ in range(self.rows)]
+        self.h_edges: List[List[int]] = [[0 for _ in range(max(0, self.cols - 1))] for _ in range(self.rows)]
+        self.v_edges: List[List[int]] = [[0 for _ in range(self.cols)] for _ in range(max(0, self.rows - 1))]
         self.fixed_cells: Set[Tuple[int, int]] = set()
         self.solution_cells: Set[Tuple[int, int]] = set()
         self.cell_size = 90
@@ -45,7 +47,8 @@ class TangoUI:
             outer,
             text=(
                 "Rules: Fill each cell with Symbol 1 or Symbol 2. No 3 equal adjacent in a row/column. "
-                "Each row/column must stay as balanced as possible."
+                "Each row/column must stay as balanced as possible. "
+                "Cells with '=' must match, and cells with 'X' must be opposite."
             ),
             wraplength=840,
         ).pack(anchor="w", pady=(4, 10))
@@ -151,7 +154,72 @@ class TangoUI:
                 if (r, c) in self.fixed_cells:
                     self.canvas.create_rectangle(x0 + 3, y0 + 3, x1 - 3, y1 - 3, outline="#4f5f75", width=2)
 
+        for r in range(self.rows):
+            for c in range(self.cols - 1):
+                edge = self.h_edges[r][c]
+                if edge == 0:
+                    continue
+                cx = (c + 1) * self.cell_size
+                cy = r * self.cell_size + (self.cell_size // 2)
+                marker = "=" if edge == 1 else "x"
+                self.canvas.create_rectangle(cx - 10, cy - 9, cx + 10, cy + 9, fill="#f3f0ea", outline="#f3f0ea", width=0)
+                self.canvas.create_text(cx, cy, text=marker, fill="#8c6e3f", font=("Helvetica", max(10, self.cell_size // 6), "bold"))
+
+        for r in range(self.rows - 1):
+            for c in range(self.cols):
+                edge = self.v_edges[r][c]
+                if edge == 0:
+                    continue
+                cx = c * self.cell_size + (self.cell_size // 2)
+                cy = (r + 1) * self.cell_size
+                marker = "=" if edge == 1 else "x"
+                self.canvas.create_rectangle(cx - 10, cy - 9, cx + 10, cy + 9, fill="#f3f0ea", outline="#f3f0ea", width=0)
+                self.canvas.create_text(cx, cy, text=marker, fill="#8c6e3f", font=("Helvetica", max(10, self.cell_size // 6), "bold"))
+
         self.canvas.create_rectangle(0, 0, board_px_w, board_px_h, outline="#222222", width=2)
+
+    def _parse_edge_value(self, token) -> int:
+        if isinstance(token, int):
+            if token in (0, 1, 2):
+                return token
+            raise ValueError("Edge constraints must be 0 (none), 1 (=), or 2 (X)")
+
+        text = str(token).strip().lower()
+        if text in ("0", ".", "none", "-"):
+            return 0
+        if text in ("1", "=", "eq", "same", "s"):
+            return 1
+        if text in ("2", "x", "!=", "opp", "opposite", "o"):
+            return 2
+        raise ValueError(f"Invalid edge token: {token}")
+
+    def _parse_edge_grid_text(self, raw_text: str, rows: int, cols: int) -> List[List[int]]:
+        lines = [line.strip() for line in raw_text.strip().splitlines() if line.strip()]
+        if rows == 0:
+            return []
+        if len(lines) != rows:
+            raise ValueError(f"Expected {rows} edge rows, found {len(lines)}")
+
+        parsed: List[List[int]] = []
+        for line in lines:
+            cells = [token for token in line.replace(",", " ").split(" ") if token]
+            if len(cells) != cols:
+                raise ValueError(f"Each edge row must have {cols} entries")
+            parsed.append([self._parse_edge_value(token) for token in cells])
+        return parsed
+
+    def _edge_grid_to_text(self, grid: List[List[int]]) -> str:
+        symbol = {0: ".", 1: "=", 2: "x"}
+        return "\n".join(" ".join(symbol.get(v, ".") for v in row) for row in grid)
+
+    def _normalize_edge_grid(self, grid, expected_rows: int, expected_cols: int, name: str) -> List[List[int]]:
+        if expected_rows == 0:
+            return []
+        if grid is None:
+            return [[0 for _ in range(expected_cols)] for _ in range(expected_rows)]
+        if len(grid) != expected_rows or any(len(row) != expected_cols for row in grid):
+            raise ValueError(f"{name} must be {expected_rows}x{expected_cols}")
+        return [[self._parse_edge_value(value) for value in row] for row in grid]
 
     def _parse_grid_text(self, raw_text: str, rows: int, cols: int) -> List[List[int]]:
         lines = [line.strip() for line in raw_text.strip().splitlines() if line.strip()]
@@ -172,7 +240,7 @@ class TangoUI:
     def new_puzzle_setup(self):
         setup = tk.Toplevel(self.root)
         setup.title("Tango Puzzle Setup")
-        setup.geometry("650x560")
+        setup.geometry("760x700")
         setup.transient(self.root)
         setup.grab_set()
 
@@ -182,7 +250,10 @@ class TangoUI:
         ttk.Label(container, text="Create Custom Tango Puzzle", font=("Helvetica", 12, "bold")).pack(anchor="w")
         ttk.Label(
             container,
-            text="Enter any rectangular board size. 0=empty, 1=symbol1, 2=symbol2.",
+            text=(
+                "Enter any rectangular board size. 0=empty, 1=symbol1, 2=symbol2.\n"
+                "Optional edge constraints: '=' same, 'x' opposite, '.' none."
+            ),
             wraplength=610,
         ).pack(anchor="w", pady=(6, 8))
 
@@ -206,6 +277,40 @@ class TangoUI:
             "0 1 0 1\n",
         )
 
+        edges_frame = ttk.Frame(container)
+        edges_frame.pack(fill=tk.BOTH, expand=True, pady=(10, 0))
+
+        h_frame = ttk.Frame(edges_frame)
+        h_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(0, 6))
+        ttk.Label(h_frame, text="Horizontal edges (rows x (cols-1)): ").pack(anchor="w")
+        h_text = tk.Text(h_frame, height=8, width=32)
+        h_text.pack(fill=tk.BOTH, expand=True)
+
+        v_frame = ttk.Frame(edges_frame)
+        v_frame.pack(side=tk.LEFT, fill=tk.BOTH, expand=True, padx=(6, 0))
+        ttk.Label(v_frame, text="Vertical edges ((rows-1) x cols):").pack(anchor="w")
+        v_text = tk.Text(v_frame, height=8, width=32)
+        v_text.pack(fill=tk.BOTH, expand=True)
+
+        def fill_edge_defaults(*_args):
+            try:
+                r_count = max(2, int(rows_var.get()))
+                c_count = max(2, int(cols_var.get()))
+            except ValueError:
+                return
+
+            h_default = "\n".join(" ".join(["."] * max(1, c_count - 1)) for _ in range(r_count))
+            v_default = "\n".join(" ".join(["."] * c_count) for _ in range(max(1, r_count - 1)))
+
+            h_text.delete("1.0", tk.END)
+            h_text.insert("1.0", h_default)
+            v_text.delete("1.0", tk.END)
+            v_text.insert("1.0", v_default)
+
+        fill_edge_defaults()
+        rows_var.trace_add("write", fill_edge_defaults)
+        cols_var.trace_add("write", fill_edge_defaults)
+
         def apply_setup():
             try:
                 rows = int(rows_var.get())
@@ -213,7 +318,12 @@ class TangoUI:
                 if rows < 2 or cols < 2:
                     raise ValueError("Board dimensions must be at least 2x2")
                 clues = self._parse_grid_text(clue_text.get("1.0", tk.END), rows, cols)
-                self._load_from_data({"rows": rows, "cols": cols, "clues": clues}, source_label="custom setup")
+                h_edges = self._parse_edge_grid_text(h_text.get("1.0", tk.END), rows, cols - 1)
+                v_edges = self._parse_edge_grid_text(v_text.get("1.0", tk.END), rows - 1, cols)
+                self._load_from_data(
+                    {"rows": rows, "cols": cols, "clues": clues, "h_edges": h_edges, "v_edges": v_edges},
+                    source_label="custom setup",
+                )
                 setup.destroy()
             except Exception as exc:
                 messagebox.showerror("Invalid Puzzle", str(exc), parent=setup)
@@ -872,7 +982,16 @@ class TangoUI:
             if action != "use":
                 return
 
-            self._load_from_data({"rows": rows, "cols": cols, "clues": clues}, source_label=Path(image_path).name)
+            self._load_from_data(
+                {
+                    "rows": rows,
+                    "cols": cols,
+                    "clues": clues,
+                    "h_edges": [[0 for _ in range(max(0, cols - 1))] for _ in range(rows)],
+                    "v_edges": [[0 for _ in range(cols)] for _ in range(max(0, rows - 1))],
+                },
+                source_label=Path(image_path).name,
+            )
             self.status.config(text=f"Imported clues from screenshot ({rows}x{cols}).")
         except Exception as exc:
             messagebox.showerror("Import Failed", str(exc), parent=self.root)
@@ -1097,6 +1216,8 @@ class TangoUI:
         self.rows = rows
         self.cols = cols
         self.board = [row[:] for row in clues]
+        self.h_edges = self._normalize_edge_grid(data.get("h_edges"), rows, max(0, cols - 1), "h_edges")
+        self.v_edges = self._normalize_edge_grid(data.get("v_edges"), max(0, rows - 1), cols, "v_edges")
         self.fixed_cells = {(r, c) for r in range(rows) for c in range(cols) if self.board[r][c] != 0}
         self.solution_cells.clear()
         self._draw_board()
@@ -1131,6 +1252,8 @@ class TangoUI:
             "rows": self.rows,
             "cols": self.cols,
             "clues": [[self.board[r][c] if (r, c) in self.fixed_cells else 0 for c in range(self.cols)] for r in range(self.rows)],
+            "h_edges": [row[:] for row in self.h_edges],
+            "v_edges": [row[:] for row in self.v_edges],
         }
 
         with open(file_path, "w", encoding="utf-8") as f:
@@ -1160,7 +1283,7 @@ class TangoUI:
 
     def _board_valid_now(self) -> bool:
         try:
-            solver = TangoPuzzleSolver(self.board)
+            solver = TangoPuzzleSolver(self.board, h_edges=self.h_edges, v_edges=self.v_edges)
         except ValueError:
             return False
 
@@ -1175,8 +1298,8 @@ class TangoUI:
 
     def solve(self):
         try:
-            solver = TangoPuzzleSolver(self.board)
-            solved = solver.solve(verify_unique=False)
+            solver = TangoPuzzleSolver(self.board, h_edges=self.h_edges, v_edges=self.v_edges)
+            solved = solver.solve(verify_unique=True)
             if solved:
                 solved_board = solver.get_solution_board()
                 self.solution_cells = {
@@ -1195,7 +1318,10 @@ class TangoUI:
                     )
                 )
             else:
-                self.status.config(text="No valid solution found for current clues.")
+                if solver.solution_count > 1:
+                    self.status.config(text="Puzzle has multiple solutions. Add constraints/clues for uniqueness.")
+                else:
+                    self.status.config(text="No valid solution found for current clues.")
         except Exception as exc:
             messagebox.showerror("Solve Error", str(exc), parent=self.root)
 
