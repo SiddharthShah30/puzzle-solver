@@ -884,6 +884,112 @@ class TangoUI:
 
         return clues
 
+    def _classify_edge_symbol(self, image, x0: int, y0: int, x1: int, y1: int) -> int:
+        """Classify edge marker patch: 0=none, 1='=', 2='x'."""
+        w = max(1, x1 - x0)
+        h = max(1, y1 - y0)
+        if w < 4 or h < 4:
+            return 0
+
+        border_samples = []
+        for x in range(x0, x1):
+            border_samples.append(image.getpixel((x, y0)))
+            border_samples.append(image.getpixel((x, y1 - 1)))
+        for y in range(y0, y1):
+            border_samples.append(image.getpixel((x0, y)))
+            border_samples.append(image.getpixel((x1 - 1, y)))
+
+        if not border_samples:
+            return 0
+
+        bg = tuple(sum(p[i] for p in border_samples) / len(border_samples) for i in range(3))
+
+        fg_points = []
+        for y in range(y0, y1):
+            for x in range(x0, x1):
+                r, g, b = image.getpixel((x, y))
+                dist = ((r - bg[0]) ** 2 + (g - bg[1]) ** 2 + (b - bg[2]) ** 2) ** 0.5
+                bright = (r + g + b) / 3.0
+                if dist > 28 and bright < ((bg[0] + bg[1] + bg[2]) / 3.0 - 6):
+                    fg_points.append((x, y))
+
+        area = w * h
+        fg_frac = len(fg_points) / max(1, area)
+        if fg_frac < 0.03 or fg_frac > 0.65:
+            return 0
+
+        top_band = 0
+        bottom_band = 0
+        diag1 = 0
+        diag2 = 0
+
+        for x, y in fg_points:
+            nx = (x - x0) / float(max(1, w - 1))
+            ny = (y - y0) / float(max(1, h - 1))
+            if 0.12 <= nx <= 0.88:
+                if abs(ny - 0.35) <= 0.13:
+                    top_band += 1
+                if abs(ny - 0.65) <= 0.13:
+                    bottom_band += 1
+
+            if 0.10 <= nx <= 0.90 and 0.10 <= ny <= 0.90:
+                if abs(ny - nx) <= 0.18:
+                    diag1 += 1
+                if abs(ny - (1.0 - nx)) <= 0.18:
+                    diag2 += 1
+
+        fg_count = max(1, len(fg_points))
+        eq_strength = min(top_band, bottom_band) / fg_count + 0.35 * (top_band + bottom_band) / fg_count
+        x_strength = min(diag1, diag2) / fg_count + 0.35 * (diag1 + diag2) / fg_count
+
+        if x_strength >= 0.22 and x_strength > eq_strength * 1.12:
+            return 2
+        if eq_strength >= 0.22:
+            return 1
+        return 0
+
+    def _extract_edges_from_image(
+        self,
+        image,
+        rows: int,
+        cols: int,
+        bounds: Tuple[int, int, int, int],
+    ) -> Tuple[List[List[int]], List[List[int]]]:
+        left, top, right, bottom = bounds
+        board_w = max(1, right - left)
+        board_h = max(1, bottom - top)
+        cell_w = board_w / cols
+        cell_h = board_h / rows
+
+        h_edges = [[0 for _ in range(max(0, cols - 1))] for _ in range(rows)]
+        v_edges = [[0 for _ in range(cols)] for _ in range(max(0, rows - 1))]
+
+        for r in range(rows):
+            for c in range(cols - 1):
+                cx = int(round(left + (c + 1) * cell_w))
+                cy = int(round(top + (r + 0.5) * cell_h))
+                box_w = max(8, int(cell_w * 0.36))
+                box_h = max(8, int(cell_h * 0.30))
+                x0 = max(0, cx - box_w // 2)
+                y0 = max(0, cy - box_h // 2)
+                x1 = min(image.size[0], cx + box_w // 2)
+                y1 = min(image.size[1], cy + box_h // 2)
+                h_edges[r][c] = self._classify_edge_symbol(image, x0, y0, x1, y1)
+
+        for r in range(rows - 1):
+            for c in range(cols):
+                cx = int(round(left + (c + 0.5) * cell_w))
+                cy = int(round(top + (r + 1) * cell_h))
+                box_w = max(8, int(cell_w * 0.30))
+                box_h = max(8, int(cell_h * 0.36))
+                x0 = max(0, cx - box_w // 2)
+                y0 = max(0, cy - box_h // 2)
+                x1 = min(image.size[0], cx + box_w // 2)
+                y1 = min(image.size[1], cy + box_h // 2)
+                v_edges[r][c] = self._classify_edge_symbol(image, x0, y0, x1, y1)
+
+        return h_edges, v_edges
+
     def _classify_symbol_cell(self, image, x0: int, y0: int, x1: int, y1: int) -> int:
         orange_hits = 0
         blue_hits = 0
@@ -940,8 +1046,11 @@ class TangoUI:
             rows, cols, inner_bounds, confidence, candidate_info = self._estimate_board_shape(cropped)
 
             clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
+            h_edges, v_edges = self._extract_edges_from_image(cropped, rows, cols, inner_bounds)
             action = self._show_import_preview(
                 clues=clues,
+                h_edges=h_edges,
+                v_edges=v_edges,
                 rows=rows,
                 cols=cols,
                 confidence=confidence,
@@ -969,8 +1078,11 @@ class TangoUI:
                     raise ValueError("Board dimensions must be at least 2x2")
                 rows, cols = manual_rows, manual_cols
                 clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
+                h_edges, v_edges = self._extract_edges_from_image(cropped, rows, cols, inner_bounds)
                 action = self._show_import_preview(
                     clues=clues,
+                    h_edges=h_edges,
+                    v_edges=v_edges,
                     rows=rows,
                     cols=cols,
                     confidence=confidence,
@@ -987,8 +1099,8 @@ class TangoUI:
                     "rows": rows,
                     "cols": cols,
                     "clues": clues,
-                    "h_edges": [[0 for _ in range(max(0, cols - 1))] for _ in range(rows)],
-                    "v_edges": [[0 for _ in range(cols)] for _ in range(max(0, rows - 1))],
+                    "h_edges": h_edges,
+                    "v_edges": v_edges,
                 },
                 source_label=Path(image_path).name,
             )
@@ -999,6 +1111,8 @@ class TangoUI:
     def _show_import_preview(
         self,
         clues: List[List[int]],
+        h_edges: List[List[int]],
+        v_edges: List[List[int]],
         rows: int,
         cols: int,
         confidence: float,
@@ -1030,7 +1144,8 @@ class TangoUI:
             text=(
                 f"Source: {source_label}\n"
                 f"Detected size: {rows}x{cols} (confidence {confidence:.2f})\n"
-                "Click any cell to cycle Empty -> Symbol 1 -> Symbol 2."
+                "Click any cell to cycle Empty -> Symbol 1 -> Symbol 2.\n"
+                "Click between cells to cycle edge: none -> '=' -> 'x' -> none."
             ),
             justify="left",
             wraplength=450,
@@ -1078,6 +1193,17 @@ class TangoUI:
         canvas.pack(anchor="n", pady=(2, 10))
 
         preview_clues = [row[:] for row in clues]
+        preview_h_edges = [row[:] for row in h_edges]
+        preview_v_edges = [row[:] for row in v_edges]
+
+        marker_font = ("Helvetica", max(10, cell_px // 4), "bold")
+
+        def draw_edge_marker(cx: int, cy: int, value: int):
+            if value == 0:
+                return
+            marker = "=" if value == 1 else "x"
+            canvas.create_rectangle(cx - 9, cy - 8, cx + 9, cy + 8, fill="#f3f0ea", outline="#f3f0ea", width=0)
+            canvas.create_text(cx, cy, text=marker, fill="#8c6e3f", font=marker_font)
 
         def redraw():
             canvas.delete("all")
@@ -1123,9 +1249,47 @@ class TangoUI:
                             width=0,
                         )
 
+            for r in range(rows):
+                for c in range(cols - 1):
+                    cx = (c + 1) * cell_px
+                    cy = int((r + 0.5) * cell_px)
+                    draw_edge_marker(cx, cy, preview_h_edges[r][c])
+
+            for r in range(rows - 1):
+                for c in range(cols):
+                    cx = int((c + 0.5) * cell_px)
+                    cy = (r + 1) * cell_px
+                    draw_edge_marker(cx, cy, preview_v_edges[r][c])
+
             canvas.create_rectangle(0, 0, canvas_w, canvas_h, outline="#111111", width=2)
 
+        def hit_edge(x: int, y: int):
+            radius = max(8, int(cell_px * 0.17))
+            for r in range(rows):
+                for c in range(cols - 1):
+                    cx = (c + 1) * cell_px
+                    cy = int((r + 0.5) * cell_px)
+                    if abs(x - cx) <= radius and abs(y - cy) <= radius:
+                        return ("h", r, c)
+            for r in range(rows - 1):
+                for c in range(cols):
+                    cx = int((c + 0.5) * cell_px)
+                    cy = (r + 1) * cell_px
+                    if abs(x - cx) <= radius and abs(y - cy) <= radius:
+                        return ("v", r, c)
+            return None
+
         def on_click(event):
+            edge_hit = hit_edge(event.x, event.y)
+            if edge_hit is not None:
+                axis, r, c = edge_hit
+                if axis == "h":
+                    preview_h_edges[r][c] = (preview_h_edges[r][c] + 1) % 3
+                else:
+                    preview_v_edges[r][c] = (preview_v_edges[r][c] + 1) % 3
+                redraw()
+                return
+
             col = event.x // cell_px
             row = event.y // cell_px
             if 0 <= row < rows and 0 <= col < cols:
@@ -1146,6 +1310,12 @@ class TangoUI:
                 for r in range(rows):
                     for c in range(cols):
                         clues[r][c] = preview_clues[r][c]
+                for r in range(rows):
+                    for c in range(cols - 1):
+                        h_edges[r][c] = preview_h_edges[r][c]
+                for r in range(rows - 1):
+                    for c in range(cols):
+                        v_edges[r][c] = preview_v_edges[r][c]
             preview.destroy()
 
         ttk.Button(button_row, text="Use Detected", command=lambda: choose("use")).pack(side=tk.LEFT)
