@@ -884,12 +884,12 @@ class TangoUI:
 
         return clues
 
-    def _classify_edge_symbol(self, image, x0: int, y0: int, x1: int, y1: int) -> int:
-        """Classify edge marker patch: 0=none, 1='=', 2='x'."""
+    def _classify_edge_symbol(self, image, x0: int, y0: int, x1: int, y1: int) -> Tuple[int, float]:
+        """Classify edge marker patch: (value, confidence), value in {0,1,2}."""
         w = max(1, x1 - x0)
         h = max(1, y1 - y0)
         if w < 4 or h < 4:
-            return 0
+            return 0, 0.0
 
         border_samples = []
         for x in range(x0, x1):
@@ -900,7 +900,7 @@ class TangoUI:
             border_samples.append(image.getpixel((x1 - 1, y)))
 
         if not border_samples:
-            return 0
+            return 0, 0.0
 
         bg = tuple(sum(p[i] for p in border_samples) / len(border_samples) for i in range(3))
 
@@ -915,8 +915,8 @@ class TangoUI:
 
         area = w * h
         fg_frac = len(fg_points) / max(1, area)
-        if fg_frac < 0.03 or fg_frac > 0.65:
-            return 0
+        if fg_frac < 0.04 or fg_frac > 0.55:
+            return 0, 0.0
 
         top_band = 0
         bottom_band = 0
@@ -942,11 +942,11 @@ class TangoUI:
         eq_strength = min(top_band, bottom_band) / fg_count + 0.35 * (top_band + bottom_band) / fg_count
         x_strength = min(diag1, diag2) / fg_count + 0.35 * (diag1 + diag2) / fg_count
 
-        if x_strength >= 0.22 and x_strength > eq_strength * 1.12:
-            return 2
-        if eq_strength >= 0.22:
-            return 1
-        return 0
+        if x_strength >= 0.28 and x_strength > eq_strength * 1.16:
+            return 2, x_strength - eq_strength
+        if eq_strength >= 0.28 and eq_strength > x_strength * 1.12:
+            return 1, eq_strength - x_strength
+        return 0, 0.0
 
     def _extract_edges_from_image(
         self,
@@ -954,7 +954,7 @@ class TangoUI:
         rows: int,
         cols: int,
         bounds: Tuple[int, int, int, int],
-    ) -> Tuple[List[List[int]], List[List[int]]]:
+    ) -> Tuple[List[List[int]], List[List[int]], List[Tuple[str, int, int, float]]]:
         left, top, right, bottom = bounds
         board_w = max(1, right - left)
         board_h = max(1, bottom - top)
@@ -963,6 +963,7 @@ class TangoUI:
 
         h_edges = [[0 for _ in range(max(0, cols - 1))] for _ in range(rows)]
         v_edges = [[0 for _ in range(cols)] for _ in range(max(0, rows - 1))]
+        edge_candidates: List[Tuple[str, int, int, float]] = []
 
         for r in range(rows):
             for c in range(cols - 1):
@@ -974,7 +975,10 @@ class TangoUI:
                 y0 = max(0, cy - box_h // 2)
                 x1 = min(image.size[0], cx + box_w // 2)
                 y1 = min(image.size[1], cy + box_h // 2)
-                h_edges[r][c] = self._classify_edge_symbol(image, x0, y0, x1, y1)
+                value, conf = self._classify_edge_symbol(image, x0, y0, x1, y1)
+                h_edges[r][c] = value
+                if value != 0:
+                    edge_candidates.append(("h", r, c, conf))
 
         for r in range(rows - 1):
             for c in range(cols):
@@ -986,9 +990,50 @@ class TangoUI:
                 y0 = max(0, cy - box_h // 2)
                 x1 = min(image.size[0], cx + box_w // 2)
                 y1 = min(image.size[1], cy + box_h // 2)
-                v_edges[r][c] = self._classify_edge_symbol(image, x0, y0, x1, y1)
+                value, conf = self._classify_edge_symbol(image, x0, y0, x1, y1)
+                v_edges[r][c] = value
+                if value != 0:
+                    edge_candidates.append(("v", r, c, conf))
 
-        return h_edges, v_edges
+        return h_edges, v_edges, edge_candidates
+
+    def _is_satisfiable_with_constraints(
+        self,
+        clues: List[List[int]],
+        h_edges: List[List[int]],
+        v_edges: List[List[int]],
+    ) -> bool:
+        try:
+            solver = TangoPuzzleSolver(clues, h_edges=h_edges, v_edges=v_edges)
+        except ValueError:
+            return False
+        board_copy = [row[:] for row in clues]
+        return solver._propagate(board_copy)
+
+    def _sanitize_detected_edges(
+        self,
+        clues: List[List[int]],
+        h_edges: List[List[int]],
+        v_edges: List[List[int]],
+        edge_candidates: List[Tuple[str, int, int, float]],
+    ) -> Tuple[List[List[int]], List[List[int]]]:
+        if self._is_satisfiable_with_constraints(clues, h_edges, v_edges):
+            return h_edges, v_edges
+
+        ordered = sorted(edge_candidates, key=lambda item: item[3])
+        h_work = [row[:] for row in h_edges]
+        v_work = [row[:] for row in v_edges]
+
+        for axis, r, c, _ in ordered:
+            if axis == "h":
+                h_work[r][c] = 0
+            else:
+                v_work[r][c] = 0
+
+            if self._is_satisfiable_with_constraints(clues, h_work, v_work):
+                return h_work, v_work
+
+        return h_work, v_work
 
     def _classify_symbol_cell(self, image, x0: int, y0: int, x1: int, y1: int) -> int:
         orange_hits = 0
@@ -1046,7 +1091,8 @@ class TangoUI:
             rows, cols, inner_bounds, confidence, candidate_info = self._estimate_board_shape(cropped)
 
             clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
-            h_edges, v_edges = self._extract_edges_from_image(cropped, rows, cols, inner_bounds)
+            h_edges, v_edges, edge_candidates = self._extract_edges_from_image(cropped, rows, cols, inner_bounds)
+            h_edges, v_edges = self._sanitize_detected_edges(clues, h_edges, v_edges, edge_candidates)
             action = self._show_import_preview(
                 clues=clues,
                 h_edges=h_edges,
@@ -1078,7 +1124,8 @@ class TangoUI:
                     raise ValueError("Board dimensions must be at least 2x2")
                 rows, cols = manual_rows, manual_cols
                 clues = self._extract_clues_from_image(cropped, rows, cols, inner_bounds)
-                h_edges, v_edges = self._extract_edges_from_image(cropped, rows, cols, inner_bounds)
+                h_edges, v_edges, edge_candidates = self._extract_edges_from_image(cropped, rows, cols, inner_bounds)
+                h_edges, v_edges = self._sanitize_detected_edges(clues, h_edges, v_edges, edge_candidates)
                 action = self._show_import_preview(
                     clues=clues,
                     h_edges=h_edges,

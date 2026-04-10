@@ -255,9 +255,6 @@ class TangoPuzzleSolver:
             if line[i] != 0 and line[i] == line[i + 1] == line[i + 2]:
                 return False, changed
 
-        if 0 not in line and abs(count1 - count2) > 1:
-            return False, changed
-
         if not self._line_valid(line):
             return False, changed
 
