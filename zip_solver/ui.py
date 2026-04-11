@@ -94,6 +94,7 @@ class ZipUI:
         ttk.Button(right, text="New Puzzle Setup", command=self.new_puzzle_setup).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Import from Screenshot", command=self.import_from_screenshot).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Load Example", command=lambda: self.load_sample("zip_2x2_sample.json")).pack(fill=tk.X, pady=4)
+        ttk.Button(right, text="Load Sequential Example", command=lambda: self.load_sample("zip_sequential_2x2.json")).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Solve", command=self.solve).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Check Rules", command=self.check_current_board).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Clear User Entries", command=self.clear_user_entries).pack(fill=tk.X, pady=4)
@@ -552,11 +553,11 @@ class ZipUI:
             solver = ZipPuzzleSolver(self._board_to_solver_input())
             if solver.solve(verify_unique=True):
                 if solver.solution_count == 1:
-                    self.status.config(text="Current board is consistent and has a unique solution.")
+                    self.status.config(text=f"Current board is consistent and has a unique solution using {solver.get_stats()['variant_used']} rules.")
                 else:
-                    self.status.config(text="Current board is consistent, but may have multiple solutions.")
+                    self.status.config(text=f"Current board is consistent, but may have multiple solutions using {solver.get_stats()['variant_used']} rules.")
             else:
-                self.status.config(text="Current board has no valid solution.")
+                self.status.config(text="Current board has no valid solution under the detected Zip rules.")
         except Exception as exc:
             self.status.config(text=f"Invalid puzzle: {exc}")
 
@@ -576,14 +577,16 @@ class ZipUI:
                 self.fixed_cells = {(r, c) for r in range(self.rows) for c in range(self.cols) if self.clue_board[r][c] != 0}
                 stats = solver.get_stats()
                 self._draw_board()
+                algo = solver.get_stats().get("variant_used") or "unknown"
                 self.status.config(
                     text=(
-                        f"Solved {self.rows}x{self.cols} in {stats['time']:.3f}s, "
+                        f"Solved {self.rows}x{self.cols} with {algo} rules in {stats['time']:.3f}s, "
                         f"{stats['moves']} search moves."
                     )
                 )
             else:
-                self.status.config(text="No valid solution found for current clues.")
+                algo = solver.get_stats().get("variant_used") or "unknown"
+                self.status.config(text=f"No valid solution found using detected {algo} rules.")
         except Exception as exc:
             messagebox.showerror("Solve Error", str(exc), parent=self.root)
 

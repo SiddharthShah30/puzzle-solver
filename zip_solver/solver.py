@@ -10,7 +10,6 @@ Rules:
 from __future__ import annotations
 
 from collections import deque
-from copy import deepcopy
 from typing import Deque, Dict, List, Optional, Set, Tuple
 import time
 
@@ -31,17 +30,72 @@ class ZipPuzzleSolver:
                 if value < 0:
                     raise ValueError("Grid values must be 0 or positive integers")
 
-        self.pairs: Dict[int, List[Coordinate]] = self._collect_pairs(clues)
-        if not self.pairs:
-            raise ValueError("At least one numbered pair is required")
-        for label, cells in self.pairs.items():
-            if len(cells) != 2:
-                raise ValueError(f"Number {label} must appear exactly twice")
+        counts = self._collect_counts(clues)
+        self.variant = self._detect_variant_from_counts(counts)
+        self.pairs: Dict[int, List[Coordinate]] = {}
+        self.sequence_positions: Dict[int, Coordinate] = {}
+
+        if self.variant == "pairs":
+            self.pairs = self._collect_pairs(clues)
+            if not self.pairs:
+                raise ValueError("At least one numbered pair is required")
+            for label, cells in self.pairs.items():
+                if len(cells) != 2:
+                    raise ValueError(f"Number {label} must appear exactly twice")
+        else:
+            self.sequence_positions = self._collect_sequence_positions(clues)
+            if not self.sequence_positions:
+                raise ValueError("At least one numbered clue is required")
+            labels = sorted(self.sequence_positions.keys())
+            if labels != list(range(1, len(labels) + 1)):
+                raise ValueError("Sequential Zip requires labels 1..N appearing once each")
 
         self.solution: Optional[List[List[int]]] = None
         self.solution_count = 0
         self.solve_time = 0.0
         self.moves = 0
+        self.variant_used: Optional[str] = None
+
+    def _collect_counts(self, clues: List[List[int]]) -> Dict[int, int]:
+        counts: Dict[int, int] = {}
+        for row in clues:
+            for value in row:
+                if value == 0:
+                    continue
+                counts[value] = counts.get(value, 0) + 1
+
+        return counts
+
+    def _detect_variant_from_counts(self, counts: Dict[int, int]) -> str:
+        if not counts:
+            raise ValueError("At least one numbered clue is required")
+
+        if all(count == 2 for count in counts.values()):
+            return "pairs"
+
+        if all(count == 1 for count in counts.values()):
+            labels = sorted(counts.keys())
+            if labels == list(range(1, len(labels) + 1)):
+                return "sequential"
+
+        raise ValueError(
+            "Zip clues must either be paired labels appearing exactly twice or sequential labels 1..N appearing once each"
+        )
+
+    def _collect_sequence_positions(self, clues: List[List[int]]) -> Dict[int, Coordinate]:
+        positions: Dict[int, Coordinate] = {}
+        for r, row in enumerate(clues):
+            for c, value in enumerate(row):
+                if value == 0:
+                    continue
+                positions[value] = (r, c)
+        return positions
+
+    def _sequential_order(self) -> List[int]:
+        labels = sorted(self.sequence_positions.keys())
+        if labels != list(range(1, len(labels) + 1)):
+            raise ValueError("Sequential Zip requires labels 1..N appearing once each")
+        return labels
 
     def _collect_pairs(self, clues: List[List[int]]) -> Dict[int, List[Coordinate]]:
         pairs: Dict[int, List[Coordinate]] = {}
@@ -238,7 +292,7 @@ class ZipPuzzleSolver:
         dfs(start)
         return paths
 
-    def solve(self, verify_unique: bool = False) -> bool:
+    def _solve_pairs(self, verify_unique: bool = False) -> bool:
         start_time = time.time()
         self.moves = 0
         self.solution = None
@@ -294,6 +348,98 @@ class ZipPuzzleSolver:
             return False
         return True
 
+    def _solve_sequential(self, verify_unique: bool = False) -> bool:
+        start_time = time.time()
+        self.moves = 0
+        self.solution = None
+        self.solution_count = 0
+
+        order = self._sequential_order()
+        start_cell = self.sequence_positions[order[0]]
+        end_cell = self.sequence_positions[order[-1]]
+        waypoints = {label: self.sequence_positions[label] for label in order}
+        total_cells = self.rows * self.cols
+        limit = 2 if verify_unique else 1
+        solutions: List[List[List[int]]] = []
+
+        visited: Set[Coordinate] = {start_cell}
+        path: List[Coordinate] = [start_cell]
+
+        def degree(cell: Coordinate) -> int:
+            return sum(1 for nxt in self._neighbors(cell[0], cell[1]) if nxt not in visited)
+
+        def dfs(cell: Coordinate, index: int):
+            if len(solutions) >= limit:
+                return
+
+            if len(path) == total_cells:
+                if cell == end_cell and index == len(order) - 1:
+                    solution_board = [[0 for _ in range(self.cols)] for _ in range(self.rows)]
+                    for step, (rr, cc) in enumerate(path, start=1):
+                        solution_board[rr][cc] = step
+                    solutions.append(solution_board)
+                return
+
+            next_index = index + 1 if index + 1 < len(order) else index
+
+            candidates = []
+            for nxt in self._neighbors(cell[0], cell[1]):
+                if nxt in visited:
+                    continue
+                value = self.initial_board[nxt[0]][nxt[1]]
+                if value != 0:
+                    if value != order[next_index]:
+                        continue
+                    if nxt != waypoints[order[next_index]]:
+                        continue
+                candidates.append(nxt)
+
+            candidates.sort(key=lambda pos: (degree(pos), self._manhattan(pos, end_cell)))
+
+            for nxt in candidates:
+                nxt_value = self.initial_board[nxt[0]][nxt[1]]
+                nxt_index = index
+                next_label = order[index + 1] if index + 1 < len(order) else None
+                if nxt_value != 0:
+                    if next_label is None or nxt_value != next_label:
+                        continue
+                    if nxt != waypoints[next_label]:
+                        continue
+                    nxt_index = index + 1
+                elif nxt_value != 0 and nxt_value != order[index]:
+                    continue
+
+                visited.add(nxt)
+                path.append(nxt)
+                self.moves += 1
+
+                dfs(nxt, nxt_index)
+
+                path.pop()
+                visited.remove(nxt)
+                if len(solutions) >= limit:
+                    return
+
+        dfs(start_cell, 0)
+
+        self.solution_count = len(solutions)
+        if solutions:
+            self.solution = solutions[0]
+            self.variant_used = "sequential"
+
+        self.solve_time = time.time() - start_time
+        if not solutions:
+            return False
+        if verify_unique and self.solution_count != 1:
+            return False
+        return True
+
+    def solve(self, verify_unique: bool = False) -> bool:
+        self.variant_used = self.variant
+        if self.variant == "pairs":
+            return self._solve_pairs(verify_unique=verify_unique)
+        return self._solve_sequential(verify_unique=verify_unique)
+
     def get_solution_board(self) -> List[List[int]]:
         if self.solution is None:
             raise ValueError("No solution available")
@@ -306,4 +452,5 @@ class ZipPuzzleSolver:
             "rows": self.rows,
             "cols": self.cols,
             "solutions_found": self.solution_count,
+            "variant_used": self.variant_used,
         }
