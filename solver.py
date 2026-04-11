@@ -17,6 +17,7 @@ class PuzzleSolverHome:
         self.sudoku_window = None
         self.queens_window = None
         self.tango_window = None
+        self.zip_window = None
         self.setup_ui()
 
     def setup_ui(self):
@@ -81,6 +82,20 @@ class PuzzleSolverHome:
         ttk.Label(
             sudoku_card,
             text="Binary puzzle: avoid 3-in-a-row and keep equal symbol counts per row/column.",
+            font=("Helvetica", 10)
+        ).pack()
+
+        self.zip_btn = ttk.Button(
+            sudoku_card,
+            text="Zip",
+            command=self.launch_zip,
+            width=30
+        )
+        self.zip_btn.pack(pady=(12, 8))
+
+        ttk.Label(
+            sudoku_card,
+            text="Connect matching numbers with paths that cover every cell.",
             font=("Helvetica", 10)
         ).pack()
 
@@ -170,6 +185,30 @@ class PuzzleSolverHome:
         self.tango_window = None
         self.tango_btn.config(state="normal")
         self.status_label.config(text="Tango window closed.")
+
+    def launch_zip(self):
+        try:
+            if self.zip_window is not None and self.zip_window.winfo_exists():
+                self.zip_window.focus_force()
+                self.status_label.config(text="Zip window is already open.")
+                return
+
+            from zip_solver.ui import ZipUI
+
+            self.zip_window = tk.Toplevel(self.root)
+            self.zip_window.protocol("WM_DELETE_WINDOW", self._on_zip_close)
+            ZipUI(self.zip_window)
+            self.zip_btn.config(state="disabled")
+            self.status_label.config(text="Zip solver launched.")
+        except Exception as exc:
+            self.status_label.config(text=f"Error launching Zip: {exc}")
+
+    def _on_zip_close(self):
+        if self.zip_window is not None and self.zip_window.winfo_exists():
+            self.zip_window.destroy()
+        self.zip_window = None
+        self.zip_btn.config(state="normal")
+        self.status_label.config(text="Zip window closed.")
 
 
 def main():
