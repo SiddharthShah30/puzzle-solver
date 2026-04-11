@@ -412,6 +412,172 @@ class ZipUI:
                 best_rows = best_cols = min(max(min_size, size), max_size)
         return best_rows, confidence
 
+    def _extract_clues_from_image(
+        self,
+        image,
+        rows: int,
+        cols: int,
+        bounds: Tuple[int, int, int, int],
+    ) -> Tuple[List[List[int]], Dict[Tuple[int, int], float]]:
+        """Extract digit clues from screenshot using OCR or pattern matching.
+        
+        Returns (clues_grid, confidence_map) where confidence_map stores per-cell confidence.
+        """
+        clues = [[0 for _ in range(cols)] for _ in range(rows)]
+        confidence_map = {}
+        
+        left, top, right, bottom = bounds
+        board_w = max(1, right - left)
+        board_h = max(1, bottom - top)
+        cell_w = board_w / cols
+        cell_h = board_h / rows
+        
+        # Try OCR first if available
+        try:
+            import pytesseract
+            ocr_available = True
+        except ImportError:
+            ocr_available = False
+        
+        for r in range(rows):
+            for c in range(cols):
+                x0 = int(left + c * cell_w)
+                y0 = int(top + r * cell_h)
+                x1 = int(left + (c + 1) * cell_w)
+                y1 = int(top + (r + 1) * cell_h)
+                
+                # Ensure bounds are within image
+                x0 = max(0, min(image.size[0] - 1, x0))
+                y0 = max(0, min(image.size[1] - 1, y0))
+                x1 = max(x0 + 1, min(image.size[0], x1))
+                y1 = max(y0 + 1, min(image.size[1], y1))
+                
+                # Extract cell
+                cell_img = image.crop((x0, y0, x1, y1))
+                
+                # Try OCR
+                if ocr_available:
+                    digit, conf = self._detect_digit_ocr(cell_img)
+                    if digit > 0 and conf > 0.5:
+                        clues[r][c] = digit
+                        confidence_map[(r, c)] = conf
+                        continue
+                
+                # Fall back to feature-based detection
+                digit, conf = self._classify_digit_cell(cell_img)
+                if digit > 0:
+                    clues[r][c] = digit
+                    confidence_map[(r, c)] = conf
+        
+        return clues, confidence_map
+    
+    def _detect_digit_ocr(self, cell_image) -> Tuple[int, float]:
+        """Try to detect digit using pytesseract OCR.
+        
+        Returns (digit, confidence) where digit is 1-9 or 0 if not detected.
+        """
+        try:
+            import pytesseract
+            
+            # Preprocess: convert to grayscale, enhance contrast
+            gray = cell_image.convert("L")
+            
+            # Try OCR
+            text = pytesseract.image_to_string(gray, config="--psm 10 -c tessedit_char_whitelist=0123456789")
+            text = text.strip()
+            
+            if text and text[0].isdigit():
+                digit = int(text[0])
+                if 0 <= digit <= 9:
+                    # Rough confidence based on text length and digit
+                    conf = min(0.99, 0.7 + len(text.strip()) * 0.05)
+                    return digit, conf
+        except Exception:
+            pass
+        
+        return 0, 0.0
+    
+    def _classify_digit_cell(self, cell_image) -> Tuple[int, float]:
+        """Classify digit in a cell using shape and spatial features.
+        
+        Returns (digit, confidence) where digit is 1-9 or 0 if not detected.
+        """
+        # Convert to grayscale
+        gray = cell_image.convert("L")
+        pixels = list(gray.getdata())
+        w, h = gray.size
+        
+        if w < 4 or h < 4:
+            return 0, 0.0
+        
+        # Find background color (most common pixel)
+        bg = sorted(set(pixels))[len(set(pixels)) // 2]  # Median color
+        
+        # Extract foreground (digit pixels)
+        fg_points = []
+        for idx, p in enumerate(pixels):
+            if abs(int(p) - int(bg)) > 30:
+                fg_points.append((idx % w, idx // w))
+        
+        if not fg_points:
+            return 0, 0.0
+        
+        # Check if enough content
+        fg_frac = len(fg_points) / max(1, w * h)
+        if fg_frac < 0.05 or fg_frac > 0.95:
+            return 0, 0.0
+        
+        # Compute bounding box and features
+        xs = [p[0] for p in fg_points]
+        ys = [p[1] for p in fg_points]
+        min_x, max_x = min(xs), max(xs)
+        min_y, max_y = min(ys), max(ys)
+        
+        bbox_w = max(1, max_x - min_x + 1)
+        bbox_h = max(1, max_y - min_y + 1)
+        aspect = bbox_w / bbox_h
+        
+        # Center and spread
+        cx = sum(xs) / len(fg_points)
+        cy = sum(ys) / len(fg_points)
+        spread_x = sum(abs(x - cx) for x in xs) / len(fg_points)
+        spread_y = sum(abs(y - cy) for y in ys) / len(fg_points)
+        
+        # Hole detection (white pixel in center of mass area)
+        center_radius = max(2, min(bbox_w, bbox_h) // 4)
+        center_hole = sum(
+            1 for x, y in fg_points
+            if abs(x - cx) <= center_radius and abs(y - cy) <= center_radius
+        ) / max(1, len(fg_points))
+        
+        # Classify based on features
+        # These thresholds are heuristics; adjust if needed
+        conf = 0.5 + fg_frac * 0.2
+        
+        # Check for hole (suggests 0, 6, 8, 9)
+        has_hole = center_hole < 0.15
+        
+        # Check aspect ratio
+        is_tall = aspect < 0.7
+        is_wide = aspect > 1.4
+        is_round = 0.7 <= aspect <= 1.4
+        
+        # Simple heuristic digit classification
+        # Returns most likely digit based on features
+        if is_round and has_hole and spread_x < 3 and spread_y < 3:
+            return 8, min(0.95, conf + 0.1)  # Good circle = 8
+        elif is_round and has_hole:
+            return 6, min(0.90, conf)  # Circle with hole = 6 or 8 or 9
+        elif is_tall and has_hole:
+            return 9, min(0.85, conf + 0.05)  # Tall + hole = 9
+        elif is_tall and spread_x < 2:
+            return 1, min(0.85, conf)  # Tall and narrow = 1
+        elif is_wide:
+            return 4, min(0.80, conf)  # Wide = 4, 7, or T
+        else:
+            # Default: assume it's a digit that exists
+            return 1, min(0.70, conf)  # Fallback to 1
+
     def _load_from_data(self, data: dict, source_label: str):
         clues = data.get("clues")
         if clues is None:
@@ -612,7 +778,9 @@ class ZipUI:
             rows, confidence = self._estimate_grid_size(cropped)
             cols = rows
 
-            clues = [[0 for _ in range(cols)] for _ in range(rows)]
+            # Extract detected clues from the image
+            clues, clue_confidence = self._extract_clues_from_image(cropped, rows, cols, (0, 0, cropped.size[0], cropped.size[1]))
+            
             action = self._show_import_preview(
                 clues=clues,
                 rows=rows,
@@ -620,6 +788,7 @@ class ZipUI:
                 confidence=confidence,
                 source_label=Path(image_path).name,
                 preview_image=cropped,
+                clue_confidence=clue_confidence,
             )
             if action == "manual":
                 manual_rows = simpledialog.askinteger("Board Rows", "Enter row count manually:", minvalue=2, parent=self.root)
@@ -627,7 +796,7 @@ class ZipUI:
                 if manual_rows is None or manual_cols is None:
                     return
                 rows, cols = manual_rows, manual_cols
-                clues = [[0 for _ in range(cols)] for _ in range(rows)]
+                clues, clue_confidence = self._extract_clues_from_image(cropped, rows, cols, (0, 0, cropped.size[0], cropped.size[1]))
                 action = self._show_import_preview(
                     clues=clues,
                     rows=rows,
@@ -635,6 +804,7 @@ class ZipUI:
                     confidence=confidence,
                     source_label=Path(image_path).name,
                     preview_image=cropped,
+                    clue_confidence=clue_confidence,
                 )
 
             if action != "use":
@@ -653,6 +823,7 @@ class ZipUI:
         confidence: float,
         source_label: str,
         preview_image=None,
+        clue_confidence: Optional[Dict[Tuple[int, int], float]] = None,
     ) -> str:
         preview = tk.Toplevel(self.root)
         preview.title("Zip Import Preview")
@@ -673,14 +844,27 @@ class ZipUI:
         right_panel.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True, padx=(14, 0))
 
         ttk.Label(left_panel, text="Detected Zip Puzzle", font=("Helvetica", 13, "bold")).pack(anchor="w")
+        
+        # Count detected clues
+        detected_clues = sum(1 for row in clues for cell in row if cell > 0)
+        avg_confidence = 0.0
+        if clue_confidence:
+            avg_confidence = sum(clue_confidence.values()) / len(clue_confidence) if clue_confidence else 0.0
+        
+        info_text = (
+            f"Source: {source_label}\n"
+            f"Detected size: {rows}x{cols} (grid confidence {confidence:.2f})\n"
+        )
+        if detected_clues > 0:
+            info_text += f"Detected {detected_clues} clue(s) (avg confidence {avg_confidence:.2f})\n"
+        info_text += (
+            "Select cells and type a number to place clue pairs.\n"
+            "Each label should appear exactly twice."
+        )
+        
         ttk.Label(
             left_panel,
-            text=(
-                f"Source: {source_label}\n"
-                f"Detected size: {rows}x{cols} (confidence {confidence:.2f})\n"
-                "Select cells and type a number to place clue pairs.\n"
-                "Each label should appear exactly twice."
-            ),
+            text=info_text,
             justify="left",
             wraplength=450,
         ).pack(anchor="w", pady=(6, 10))
