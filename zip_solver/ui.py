@@ -52,6 +52,8 @@ class ZipUI:
         self.cols = 4
         self.clue_board: List[List[int]] = [[0 for _ in range(self.cols)] for _ in range(self.rows)]
         self.board: List[List[int]] = [row[:] for row in self.clue_board]
+        self.h_walls: List[List[int]] = [[0 for _ in range(max(0, self.cols - 1))] for _ in range(self.rows)]
+        self.v_walls: List[List[int]] = [[0 for _ in range(self.cols)] for _ in range(max(0, self.rows - 1))]
         self.fixed_cells: Set[Tuple[int, int]] = set()
         self.solution_cells: Set[Tuple[int, int]] = set()
         self.cell_size = 90
@@ -71,9 +73,9 @@ class ZipUI:
         ttk.Label(
             outer,
             text=(
-                "Rules: matching numbers must connect with orthogonal paths. "
-                "Every cell must belong to a path, so there are no blank spaces. "
-                "Each number must appear exactly twice."
+                "Rules: draw one unbroken orthogonal path that visits clues in order (1,2,3...). "
+                "The path must cover every cell exactly once and cannot cross itself. "
+                "Thick wall barriers block movement between adjacent cells."
             ),
             wraplength=920,
         ).pack(anchor="w", pady=(4, 10))
@@ -94,7 +96,7 @@ class ZipUI:
         ttk.Button(right, text="New Puzzle Setup", command=self.new_puzzle_setup).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Import from Screenshot", command=self.import_from_screenshot).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Load Example", command=lambda: self.load_sample("zip_2x2_sample.json")).pack(fill=tk.X, pady=4)
-        ttk.Button(right, text="Load Sequential Example", command=lambda: self.load_sample("zip_sequential_2x2.json")).pack(fill=tk.X, pady=4)
+        ttk.Button(right, text="Load 4x4 Example", command=lambda: self.load_sample("zip_4x4_sample.json")).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Solve", command=self.solve).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Check Rules", command=self.check_current_board).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Clear User Entries", command=self.clear_user_entries).pack(fill=tk.X, pady=4)
@@ -162,6 +164,13 @@ class ZipUI:
                 if self.cursor == (r, c):
                     self.canvas.create_rectangle(x0 + 6, y0 + 6, x1 - 6, y1 - 6, outline="#111111", width=2)
 
+                # Draw right wall for this cell.
+                if c < self.cols - 1 and self.h_walls[r][c] == 1:
+                    self.canvas.create_line(x1, y0, x1, y1, fill="#111111", width=5)
+                # Draw bottom wall for this cell.
+                if r < self.rows - 1 and self.v_walls[r][c] == 1:
+                    self.canvas.create_line(x0, y1, x1, y1, fill="#111111", width=5)
+
         self.canvas.create_rectangle(0, 0, board_w, board_h, outline="#222222", width=2)
 
     def _parse_grid_text(self, raw_text: str, rows: int, cols: int) -> List[List[int]]:
@@ -203,8 +212,9 @@ class ZipUI:
         ttk.Label(
             container,
             text=(
-                "Enter size and clue pairs. Each number must appear exactly twice.\n"
-                "Clue grid values: 0 for blank, positive numbers for endpoints."
+                "Enter board size and sequential clues.\n"
+                "Clue grid values: 0 for blank, positive numbers for numbered waypoints.\n"
+                "Numbers must be unique and form 1..N."
             ),
             wraplength=700,
         ).pack(anchor="w", pady=(6, 10))
@@ -226,7 +236,7 @@ class ZipUI:
             "1 0 0 0\n"
             "0 0 0 0\n"
             "0 0 0 0\n"
-            "0 0 0 1\n",
+            "0 0 0 2\n",
         )
 
         def apply_setup():
@@ -598,10 +608,27 @@ class ZipUI:
                 if value < 0:
                     raise ValueError("Clues must be non-negative integers")
 
+        h_walls = data.get("h_walls")
+        v_walls = data.get("v_walls")
+        if h_walls is None:
+            h_walls = [[0 for _ in range(max(0, cols - 1))] for _ in range(rows)]
+        if v_walls is None:
+            v_walls = [[0 for _ in range(cols)] for _ in range(max(0, rows - 1))]
+        if len(h_walls) != rows or any(len(row) != max(0, cols - 1) for row in h_walls):
+            raise ValueError("h_walls must be rows x (cols-1)")
+        if len(v_walls) != max(0, rows - 1) or any(len(row) != cols for row in v_walls):
+            raise ValueError("v_walls must be (rows-1) x cols")
+        if any(value not in (0, 1) for row in h_walls for value in row):
+            raise ValueError("h_walls values must be 0 or 1")
+        if any(value not in (0, 1) for row in v_walls for value in row):
+            raise ValueError("v_walls values must be 0 or 1")
+
         self.rows = rows
         self.cols = cols
         self.clue_board = [row[:] for row in clues]
         self.board = [row[:] for row in clues]
+        self.h_walls = [row[:] for row in h_walls]
+        self.v_walls = [row[:] for row in v_walls]
         self.fixed_cells = {(r, c) for r in range(rows) for c in range(cols) if self.clue_board[r][c] != 0}
         self.solution_cells.clear()
         self.selected_cells = {(0, 0)}
@@ -636,6 +663,8 @@ class ZipUI:
             "rows": self.rows,
             "cols": self.cols,
             "clues": [[self.board[r][c] if (r, c) in self.fixed_cells else 0 for c in range(self.cols)] for r in range(self.rows)],
+            "h_walls": [row[:] for row in self.h_walls],
+            "v_walls": [row[:] for row in self.v_walls],
         }
         with open(file_path, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2)
@@ -716,20 +745,20 @@ class ZipUI:
 
     def check_current_board(self):
         try:
-            solver = ZipPuzzleSolver(self._board_to_solver_input())
+            solver = ZipPuzzleSolver(self._board_to_solver_input(), h_walls=self.h_walls, v_walls=self.v_walls)
             if solver.solve(verify_unique=True):
                 if solver.solution_count == 1:
-                    self.status.config(text=f"Current board is consistent and has a unique solution using {solver.get_stats()['variant_used']} rules.")
+                    self.status.config(text="Current board is consistent and has a unique sequential full-cover solution.")
                 else:
-                    self.status.config(text=f"Current board is consistent, but may have multiple solutions using {solver.get_stats()['variant_used']} rules.")
+                    self.status.config(text="Current board is consistent, but may have multiple valid sequential full-cover solutions.")
             else:
-                self.status.config(text="Current board has no valid solution under the detected Zip rules.")
+                self.status.config(text="Current board has no valid sequential full-cover solution.")
         except Exception as exc:
             self.status.config(text=f"Invalid puzzle: {exc}")
 
     def solve(self):
         try:
-            solver = ZipPuzzleSolver(self._board_to_solver_input())
+            solver = ZipPuzzleSolver(self._board_to_solver_input(), h_walls=self.h_walls, v_walls=self.v_walls)
             solved = solver.solve(verify_unique=False)
             if solved:
                 solved_board = solver.get_solution_board()
@@ -743,16 +772,14 @@ class ZipUI:
                 self.fixed_cells = {(r, c) for r in range(self.rows) for c in range(self.cols) if self.clue_board[r][c] != 0}
                 stats = solver.get_stats()
                 self._draw_board()
-                algo = solver.get_stats().get("variant_used") or "unknown"
                 self.status.config(
                     text=(
-                        f"Solved {self.rows}x{self.cols} with {algo} rules in {stats['time']:.3f}s, "
+                        f"Solved {self.rows}x{self.cols} sequential full-cover puzzle in {stats['time']:.3f}s, "
                         f"{stats['moves']} search moves."
                     )
                 )
             else:
-                algo = solver.get_stats().get("variant_used") or "unknown"
-                self.status.config(text=f"No valid solution found using detected {algo} rules.")
+                self.status.config(text="No valid sequential full-cover solution found.")
         except Exception as exc:
             messagebox.showerror("Solve Error", str(exc), parent=self.root)
 
@@ -858,8 +885,8 @@ class ZipUI:
         if detected_clues > 0:
             info_text += f"Detected {detected_clues} clue(s) (avg confidence {avg_confidence:.2f})\n"
         info_text += (
-            "Select cells and type a number to place clue pairs.\n"
-            "Each label should appear exactly twice."
+            "Select cells and type clue numbers.\n"
+            "Numbers should be unique and form ascending clues 1..N."
         )
         
         ttk.Label(
