@@ -61,6 +61,8 @@ class ZipUI:
         self.selection_anchor: Tuple[int, int] = (0, 0)
         self.cursor: Tuple[int, int] = (0, 0)
         self.selected_label_var = tk.StringVar(value="1")
+        self.wall_edit_mode = False
+        self.wall_mode_btn: Optional[ttk.Button] = None
 
         self._setup_ui()
         self._draw_board()
@@ -75,7 +77,8 @@ class ZipUI:
             text=(
                 "Rules: draw one unbroken orthogonal path that visits clues in order (1,2,3...). "
                 "The path must cover every cell exactly once and cannot cross itself. "
-                "Thick wall barriers block movement between adjacent cells."
+                "Thick wall barriers block movement between adjacent cells. "
+                "Use wall edit mode to click near grid lines and toggle blocked sides."
             ),
             wraplength=920,
         ).pack(anchor="w", pady=(4, 10))
@@ -97,6 +100,8 @@ class ZipUI:
         ttk.Button(right, text="Import from Screenshot", command=self.import_from_screenshot).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Load Example", command=lambda: self.load_sample("zip_2x2_sample.json")).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Load 4x4 Example", command=lambda: self.load_sample("zip_4x4_sample.json")).pack(fill=tk.X, pady=4)
+        self.wall_mode_btn = ttk.Button(right, text="Edit Walls: Off", command=self.toggle_wall_edit_mode)
+        self.wall_mode_btn.pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Solve", command=self.solve).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Check Rules", command=self.check_current_board).pack(fill=tk.X, pady=4)
         ttk.Button(right, text="Clear User Entries", command=self.clear_user_entries).pack(fill=tk.X, pady=4)
@@ -114,7 +119,7 @@ class ZipUI:
         ttk.Button(row, text="Clear", command=lambda: self.apply_selected_label(clear=True)).pack(side=tk.LEFT, padx=(8, 0))
         ttk.Label(
             editor,
-            text="Click cells to select. Use Shift+Click or Shift+Arrow to extend.\nType a number and apply to fill or correct clues.",
+            text="Click cells to select. Use Shift+Click or Shift+Arrow to extend.\nType a number and apply to fill or correct clues.\nTurn on wall editing to block sides between cells.",
             wraplength=280,
         ).pack(anchor="w", pady=(8, 0))
 
@@ -171,7 +176,28 @@ class ZipUI:
                 if r < self.rows - 1 and self.v_walls[r][c] == 1:
                     self.canvas.create_line(x0, y1, x1, y1, fill="#111111", width=5)
 
+        if self.wall_edit_mode:
+            self.canvas.create_rectangle(2, 2, board_w - 2, board_h - 2, outline="#c77d00", width=2)
+
         self.canvas.create_rectangle(0, 0, board_w, board_h, outline="#222222", width=2)
+
+    def toggle_wall_edit_mode(self):
+        self.wall_edit_mode = not self.wall_edit_mode
+        if self.wall_mode_btn is not None:
+            self.wall_mode_btn.config(text=f"Edit Walls: {'On' if self.wall_edit_mode else 'Off'}")
+        if self.wall_edit_mode:
+            self.status.config(text="Wall edit mode on. Click near a grid line to toggle a blocked side.")
+        else:
+            self.status.config(text="Wall edit mode off.")
+        self._draw_board()
+
+    def _toggle_h_wall(self, row: int, col: int):
+        if 0 <= row < self.rows and 0 <= col < self.cols - 1:
+            self.h_walls[row][col] = 0 if self.h_walls[row][col] else 1
+
+    def _toggle_v_wall(self, row: int, col: int):
+        if 0 <= row < self.rows - 1 and 0 <= col < self.cols:
+            self.v_walls[row][col] = 0 if self.v_walls[row][col] else 1
 
     def _parse_grid_text(self, raw_text: str, rows: int, cols: int) -> List[List[int]]:
         lines = [line.strip() for line in raw_text.strip().splitlines() if line.strip()]
@@ -693,6 +719,39 @@ class ZipUI:
     def on_canvas_click(self, event):
         if self.rows == 0 or self.cols == 0:
             return
+
+        if self.wall_edit_mode:
+            board_w = self.cell_size * self.cols
+            board_h = self.cell_size * self.rows
+            if not (0 <= event.x <= board_w and 0 <= event.y <= board_h):
+                return
+
+            col = min(self.cols - 1, max(0, event.x // self.cell_size))
+            row = min(self.rows - 1, max(0, event.y // self.cell_size))
+            local_x = event.x - col * self.cell_size
+            local_y = event.y - row * self.cell_size
+            snap = max(8, self.cell_size // 5)
+
+            candidates: List[Tuple[int, int, str, int]] = []
+            if col > 0 and local_x <= snap:
+                candidates.append((row, col - 1, "h", local_x))
+            if col < self.cols - 1 and self.cell_size - local_x <= snap:
+                candidates.append((row, col, "h", self.cell_size - local_x))
+            if row > 0 and local_y <= snap:
+                candidates.append((row - 1, col, "v", local_y))
+            if row < self.rows - 1 and self.cell_size - local_y <= snap:
+                candidates.append((row, col, "v", self.cell_size - local_y))
+
+            if candidates:
+                candidates.sort(key=lambda item: item[3])
+                wall_row, wall_col, axis, _distance = candidates[0]
+                if axis == "h":
+                    self._toggle_h_wall(wall_row, wall_col)
+                else:
+                    self._toggle_v_wall(wall_row, wall_col)
+                self.status.config(text="Toggled wall barrier.")
+                self._draw_board()
+                return
 
         col = event.x // self.cell_size
         row = event.y // self.cell_size
