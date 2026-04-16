@@ -52,6 +52,7 @@ class ZipPuzzleSolver:
         self.end_cell = self.sequence_positions[labels[-1]]
 
         self.solution: Optional[List[List[int]]] = None
+        self.solution_path: Optional[List[Coordinate]] = None
         self.solution_count = 0
         self.solve_time = 0.0
         self.moves = 0
@@ -193,6 +194,7 @@ class ZipPuzzleSolver:
         start_time = time.time()
         self.moves = 0
         self.solution = None
+        self.solution_path = None
         self.solution_count = 0
 
         total_cells = self.rows * self.cols
@@ -212,6 +214,7 @@ class ZipPuzzleSolver:
                     for step, (rr, cc) in enumerate(path, start=1):
                         solution_board[rr][cc] = step
                     solutions.append(solution_board)
+                    self.solution_path = path[:]
                 return
 
             required_next_label = self.sequence_order[index + 1] if index + 1 < len(self.sequence_order) else self.sequence_order[index]
@@ -256,6 +259,15 @@ class ZipPuzzleSolver:
         self.solution_count = len(solutions)
         if solutions:
             self.solution = solutions[0]
+            if self.solution_path is None and self.solution is not None:
+                ordered: List[Tuple[int, Coordinate]] = []
+                for r in range(self.rows):
+                    for c in range(self.cols):
+                        value = self.solution[r][c]
+                        if value > 0:
+                            ordered.append((value, (r, c)))
+                ordered.sort(key=lambda item: item[0])
+                self.solution_path = [cell for _, cell in ordered]
 
         self.solve_time = time.time() - start_time
         if not solutions:
@@ -271,6 +283,11 @@ class ZipPuzzleSolver:
         if self.solution is None:
             raise ValueError("No solution available")
         return [row[:] for row in self.solution]
+
+    def get_solution_path(self) -> List[Coordinate]:
+        if self.solution_path is None:
+            raise ValueError("No solution path available")
+        return list(self.solution_path)
 
     def get_stats(self) -> dict:
         return {

@@ -56,6 +56,7 @@ class ZipUI:
         self.v_walls: List[List[int]] = [[0 for _ in range(self.cols)] for _ in range(max(0, self.rows - 1))]
         self.fixed_cells: Set[Tuple[int, int]] = set()
         self.solution_cells: Set[Tuple[int, int]] = set()
+        self.solution_path: List[Tuple[int, int]] = []
         self.cell_size = 90
         self.selected_cells: Set[Tuple[int, int]] = {(0, 0)}
         self.selection_anchor: Tuple[int, int] = (0, 0)
@@ -154,7 +155,7 @@ class ZipUI:
 
                 self.canvas.create_rectangle(x0, y0, x1, y1, fill=fill, outline="#cfc8bf", width=1)
 
-                if value != 0:
+                if value != 0 and (r, c) in self.fixed_cells:
                     radius = max(11, self.cell_size // 3)
                     cx = (x0 + x1) / 2
                     cy = (y0 + y1) / 2
@@ -175,6 +176,15 @@ class ZipUI:
                 # Draw bottom wall for this cell.
                 if r < self.rows - 1 and self.v_walls[r][c] == 1:
                     self.canvas.create_line(x0, y1, x1, y1, fill="#111111", width=5)
+
+        if self.solution_path:
+            line_width = max(5, self.cell_size // 6)
+            points: List[float] = []
+            for r, c in self.solution_path:
+                cx = c * self.cell_size + self.cell_size / 2
+                cy = r * self.cell_size + self.cell_size / 2
+                points.extend([cx, cy])
+            self.canvas.create_line(*points, fill="#2f80ed", width=line_width, capstyle=tk.ROUND, joinstyle=tk.ROUND)
 
         if self.wall_edit_mode:
             self.canvas.create_rectangle(2, 2, board_w - 2, board_h - 2, outline="#c77d00", width=2)
@@ -657,6 +667,7 @@ class ZipUI:
         self.v_walls = [row[:] for row in v_walls]
         self.fixed_cells = {(r, c) for r in range(rows) for c in range(cols) if self.clue_board[r][c] != 0}
         self.solution_cells.clear()
+        self.solution_path = []
         self.selected_cells = {(0, 0)}
         self.selection_anchor = (0, 0)
         self.cursor = (0, 0)
@@ -707,12 +718,14 @@ class ZipUI:
                 if (r, c) not in self.fixed_cells:
                     self.board[r][c] = 0
         self.solution_cells.clear()
+        self.solution_path = []
         self._draw_board()
         self.status.config(text="Cleared user entries.")
 
     def reset_to_clues(self):
         self.board = [row[:] for row in self.clue_board]
         self.solution_cells.clear()
+        self.solution_path = []
         self._draw_board()
         self.status.config(text="Reset board to original clues.")
 
@@ -797,6 +810,7 @@ class ZipUI:
             if label == 0 and (r, c) not in self.fixed_cells:
                 self.board[r][c] = 0
         self.solution_cells.clear()
+        self.solution_path = []
         self._draw_board()
 
     def _board_to_solver_input(self) -> List[List[int]]:
@@ -821,24 +835,26 @@ class ZipUI:
             solved = solver.solve(verify_unique=False)
             if solved:
                 solved_board = solver.get_solution_board()
+                self.solution_path = solver.get_solution_path()
                 self.solution_cells = {
                     (r, c)
                     for r in range(self.rows)
                     for c in range(self.cols)
-                    if solved_board[r][c] != self.board[r][c]
+                    if solved_board[r][c] > 0 and (r, c) not in self.fixed_cells
                 }
-                self.board = solved_board
+                self.board = [row[:] for row in self.clue_board]
                 self.fixed_cells = {(r, c) for r in range(self.rows) for c in range(self.cols) if self.clue_board[r][c] != 0}
                 stats = solver.get_stats()
                 self._draw_board()
                 self.status.config(
                     text=(
-                        f"Solved {self.rows}x{self.cols} sequential full-cover puzzle in {stats['time']:.3f}s, "
+                        f"Solved {self.rows}x{self.cols} path puzzle in {stats['time']:.3f}s, "
                         f"{stats['moves']} search moves."
                     )
                 )
             else:
-                self.status.config(text="No valid sequential full-cover solution found.")
+                self.solution_path = []
+                self.status.config(text="No valid path solution found.")
         except Exception as exc:
             messagebox.showerror("Solve Error", str(exc), parent=self.root)
 
