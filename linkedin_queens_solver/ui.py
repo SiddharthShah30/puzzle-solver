@@ -16,6 +16,7 @@ except ImportError:  # pragma: no cover - runtime fallback
     ImageTk = None
 
 from .solver import QueensPuzzleSolver
+from ui_theme import apply_app_theme
 
 
 COLOR_PALETTE = [
@@ -43,10 +44,12 @@ COLOR_PALETTE = [
 
 
 class QueensUI:
-    def __init__(self, root: tk.Toplevel):
+    def __init__(self, root: tk.Toplevel, theme_name: str = "light"):
         self.root = root
         self.root.title("Queens Solver")
         self.root.geometry("1050x760")
+        self.theme_name = theme_name
+        self.theme = apply_app_theme(self.root, theme_name)
 
         self.samples_dir = Path(__file__).parent / "samples"
 
@@ -60,6 +63,13 @@ class QueensUI:
 
         self._setup_ui()
         self.status.config(text="Create a puzzle, load a puzzle JSON, or load the included sample.")
+
+    def refresh_theme(self, theme_name: str):
+        self.theme_name = theme_name
+        self.theme = apply_app_theme(self.root, theme_name)
+        if hasattr(self, "canvas"):
+            self.canvas.configure(bg=self.theme["canvas"])
+            self._draw_board()
 
     def _setup_ui(self):
         outer = ttk.Frame(self.root, padding=12)
@@ -82,7 +92,7 @@ class QueensUI:
         left = ttk.LabelFrame(content, text="Board", padding=8)
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(left, width=560, height=560, bg="#ffffff")
+        self.canvas = tk.Canvas(left, width=560, height=560, bg=self.theme["canvas"])
         self.canvas.pack(padx=6, pady=6)
         self.canvas.bind("<Button-1>", self.on_canvas_click)
 

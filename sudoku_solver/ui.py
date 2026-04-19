@@ -17,13 +17,17 @@ import string
 
 from .solver import SudokuSolver
 from .learner import SudokuLearner
+from ui_theme import apply_app_theme
+from ui_theme import apply_app_theme
 
 
 class SudokuSolverUI:
-    def __init__(self, root: tk.Tk):
+    def __init__(self, root: tk.Tk, theme_name: str = "light"):
         self.root = root
         self.root.title("Complete Sudoku Solver - All Grids & Sizes")
         self.root.geometry("1400x950")
+        self.theme_name = theme_name
+        self.theme = apply_app_theme(self.root, theme_name)
         
         self.solver: Optional[SudokuSolver] = None
         self.learner = SudokuLearner()
@@ -62,6 +66,13 @@ class SudokuSolverUI:
             style.theme_use("clam")
         except tk.TclError:
             pass
+
+    def refresh_theme(self, theme_name: str):
+        self.theme_name = theme_name
+        self.theme = apply_app_theme(self.root, theme_name)
+        if hasattr(self, "canvas"):
+            self.canvas.configure(bg=self.theme["canvas"])
+            self.draw_board()
 
     def _create_standard_region_map(self, size: int) -> List[List[int]]:
         """Create the default square-region layout for standard Sudoku."""
@@ -293,7 +304,7 @@ class SudokuSolverUI:
             canvas_frame,
             width=self.canvas_size,
             height=self.canvas_size,
-            bg='white',
+            bg=self.theme["canvas"],
             cursor='cross'
         )
         self.canvas.pack(padx=5, pady=5)

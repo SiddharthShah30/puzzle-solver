@@ -16,13 +16,16 @@ except ImportError:  # pragma: no cover - runtime fallback
     ImageTk = None
 
 from .solver import TangoPuzzleSolver
+from ui_theme import apply_app_theme
 
 
 class TangoUI:
-    def __init__(self, root: tk.Toplevel):
+    def __init__(self, root: tk.Toplevel, theme_name: str = "light"):
         self.root = root
         self.root.title("Tango Solver")
         self.root.geometry("980x740")
+        self.theme_name = theme_name
+        self.theme = apply_app_theme(self.root, theme_name)
 
         self.samples_dir = Path(__file__).parent / "samples"
 
@@ -37,6 +40,13 @@ class TangoUI:
 
         self._setup_ui()
         self._draw_board()
+
+    def refresh_theme(self, theme_name: str):
+        self.theme_name = theme_name
+        self.theme = apply_app_theme(self.root, theme_name)
+        if hasattr(self, "canvas"):
+            self.canvas.configure(bg=self.theme["canvas"])
+            self._draw_board()
 
     def _setup_ui(self):
         outer = ttk.Frame(self.root, padding=12)
@@ -59,7 +69,7 @@ class TangoUI:
         left = ttk.LabelFrame(content, text="Board", padding=8)
         left.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
 
-        self.canvas = tk.Canvas(left, width=620, height=620, bg="#ffffff", highlightthickness=0)
+        self.canvas = tk.Canvas(left, width=620, height=620, bg=self.theme["canvas"], highlightthickness=0)
         self.canvas.pack(padx=6, pady=6)
         self.canvas.bind("<Button-1>", self.on_canvas_click)
 

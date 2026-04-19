@@ -6,18 +6,26 @@ Use this as the entry point as more puzzle types are added.
 import tkinter as tk
 from tkinter import ttk
 
+from ui_theme import apply_app_theme
+
 
 class PuzzleSolverHome:
     def __init__(self, root: tk.Tk):
         self.root = root
         self.root.title("Puzzle Solver Hub")
         self.root.geometry("700x450")
-        self.root.configure(bg="#eef2f7")
+
+        self.theme_name = "light"
+        self.theme = apply_app_theme(self.root, self.theme_name)
 
         self.sudoku_window = None
+        self.sudoku_ui = None
         self.queens_window = None
+        self.queens_ui = None
         self.tango_window = None
+        self.tango_ui = None
         self.zip_window = None
+        self.zip_ui = None
         self.setup_ui()
 
     def _hide_home(self):
@@ -28,23 +36,38 @@ class PuzzleSolverHome:
         self.root.lift()
         self.root.focus_force()
 
+    def _toggle_theme(self):
+        self.theme_name = "dark" if self.theme_name == "light" else "light"
+        self.theme = apply_app_theme(self.root, self.theme_name)
+        self.theme_btn.config(text=f"{self.theme_name.title()} Mode")
+        for ui in (self.sudoku_ui, self.queens_ui, self.tango_ui, self.zip_ui):
+            if ui is not None and hasattr(ui, "refresh_theme"):
+                ui.refresh_theme(self.theme_name)
+        self.status_label.config(text=f"Switched to {self.theme_name} mode.")
+
     def setup_ui(self):
         container = ttk.Frame(self.root, padding=20)
         container.pack(fill=tk.BOTH, expand=True)
 
+        header = ttk.Frame(container)
+        header.pack(fill="x", pady=(0, 10))
+
         title = ttk.Label(
-            container,
+            header,
             text="Puzzle Solver Hub",
-            font=("Helvetica", 24, "bold")
+            font=("Segoe UI", 24, "bold")
         )
-        title.pack(pady=(10, 8))
+        title.pack(side=tk.LEFT)
+
+        self.theme_btn = ttk.Button(header, text="Dark Mode", command=self._toggle_theme)
+        self.theme_btn.pack(side=tk.RIGHT)
 
         subtitle = ttk.Label(
             container,
             text="Launch puzzle modules from one place",
-            font=("Helvetica", 11)
+            font=("Segoe UI", 11)
         )
-        subtitle.pack(pady=(0, 20))
+        subtitle.pack(pady=(0, 14), anchor="w")
 
         ttk.Separator(container, orient="horizontal").pack(fill="x", pady=8)
 
@@ -62,7 +85,7 @@ class PuzzleSolverHome:
         ttk.Label(
             sudoku_card,
             text="Supports 1x1, 4x4, 9x9, and 16x16 boards with keyboard input.",
-            font=("Helvetica", 10)
+            font=("Segoe UI", 10)
         ).pack()
 
         self.queens_btn = ttk.Button(
@@ -76,7 +99,7 @@ class PuzzleSolverHome:
         ttk.Label(
             sudoku_card,
             text="Solves one-queen-per-row/column/region puzzles with no-touch constraints.",
-            font=("Helvetica", 10)
+            font=("Segoe UI", 10)
         ).pack()
 
         self.tango_btn = ttk.Button(
@@ -90,7 +113,7 @@ class PuzzleSolverHome:
         ttk.Label(
             sudoku_card,
             text="Binary puzzle: avoid 3-in-a-row and keep equal symbol counts per row/column.",
-            font=("Helvetica", 10)
+            font=("Segoe UI", 10)
         ).pack()
 
         self.zip_btn = ttk.Button(
@@ -104,7 +127,7 @@ class PuzzleSolverHome:
         ttk.Label(
             sudoku_card,
             text="Connect matching numbers with paths that cover every cell.",
-            font=("Helvetica", 10)
+            font=("Segoe UI", 10)
         ).pack()
 
         future_card = ttk.LabelFrame(container, text="Coming Next", padding=14)
@@ -112,7 +135,7 @@ class PuzzleSolverHome:
         ttk.Label(
             future_card,
             text="Add future puzzle launch buttons here (N-Queens, Crosswords, etc.).",
-            font=("Helvetica", 10)
+            font=("Segoe UI", 10)
         ).pack()
 
         self.status_label = ttk.Label(
@@ -134,7 +157,7 @@ class PuzzleSolverHome:
 
             self.sudoku_window = tk.Toplevel(self.root)
             self.sudoku_window.protocol("WM_DELETE_WINDOW", self._on_sudoku_close)
-            SudokuSolverUI(self.sudoku_window)
+            self.sudoku_ui = SudokuSolverUI(self.sudoku_window, theme_name=self.theme_name)
             self.sudoku_btn.config(state="disabled")
             self.status_label.config(text="Sudoku solver launched.")
             self._hide_home()
@@ -146,6 +169,7 @@ class PuzzleSolverHome:
         if self.sudoku_window is not None and self.sudoku_window.winfo_exists():
             self.sudoku_window.destroy()
         self.sudoku_window = None
+        self.sudoku_ui = None
         self.sudoku_btn.config(state="normal")
         self.status_label.config(text="Sudoku window closed.")
         self._show_home()
@@ -162,7 +186,7 @@ class PuzzleSolverHome:
 
             self.queens_window = tk.Toplevel(self.root)
             self.queens_window.protocol("WM_DELETE_WINDOW", self._on_queens_close)
-            QueensUI(self.queens_window)
+            self.queens_ui = QueensUI(self.queens_window, theme_name=self.theme_name)
             self.queens_btn.config(state="disabled")
             self.status_label.config(text="Queens solver launched.")
             self._hide_home()
@@ -174,6 +198,7 @@ class PuzzleSolverHome:
         if self.queens_window is not None and self.queens_window.winfo_exists():
             self.queens_window.destroy()
         self.queens_window = None
+        self.queens_ui = None
         self.queens_btn.config(state="normal")
         self.status_label.config(text="Queens window closed.")
         self._show_home()
@@ -190,7 +215,7 @@ class PuzzleSolverHome:
 
             self.tango_window = tk.Toplevel(self.root)
             self.tango_window.protocol("WM_DELETE_WINDOW", self._on_tango_close)
-            TangoUI(self.tango_window)
+            self.tango_ui = TangoUI(self.tango_window, theme_name=self.theme_name)
             self.tango_btn.config(state="disabled")
             self.status_label.config(text="Tango solver launched.")
             self._hide_home()
@@ -202,6 +227,7 @@ class PuzzleSolverHome:
         if self.tango_window is not None and self.tango_window.winfo_exists():
             self.tango_window.destroy()
         self.tango_window = None
+        self.tango_ui = None
         self.tango_btn.config(state="normal")
         self.status_label.config(text="Tango window closed.")
         self._show_home()
@@ -218,7 +244,7 @@ class PuzzleSolverHome:
 
             self.zip_window = tk.Toplevel(self.root)
             self.zip_window.protocol("WM_DELETE_WINDOW", self._on_zip_close)
-            ZipUI(self.zip_window)
+            self.zip_ui = ZipUI(self.zip_window, theme_name=self.theme_name)
             self.zip_btn.config(state="disabled")
             self.status_label.config(text="Zip solver launched.")
             self._hide_home()
@@ -230,6 +256,7 @@ class PuzzleSolverHome:
         if self.zip_window is not None and self.zip_window.winfo_exists():
             self.zip_window.destroy()
         self.zip_window = None
+        self.zip_ui = None
         self.zip_btn.config(state="normal")
         self.status_label.config(text="Zip window closed.")
         self._show_home()
